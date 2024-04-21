@@ -1,0 +1,8 @@
+.label fillScreen=$102c
+.label getNextColor=$1053
+.label gradientColor=$106b
+.label frame_delay=$1069
+.label loop=$100d
+.label main=$1000
+.label fillColors=$103e
+.label colorOffset=$106a

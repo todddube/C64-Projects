@@ -1,0 +1,16 @@
+Output dir: C:\Users\todd\OneDrive\Documents\GitHub\C64-Projects\demos\bin
+parsing
+flex pass 1
+flex pass 2
+flex pass 3
+Output pass
+Writing prg file: demo1.prg
+
+Memory Map
+----------
+Default-segment:
+  $0801-$080c Basic
+  $080e-$080d Basic End
+  $1000-$1077 Unnamed
+
+Writing Symbol file: demo1.sym

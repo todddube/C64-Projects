@@ -1,0 +1,294 @@
+archdep_register_cbmfont(): Registering CBM font using Pango 1.50.14
+archdep_register_cbmfont(): Registering CBM font using Pango 1.50.14
+archdep_register_cbmfont(): Using AddFontResourceA()
+archdep_register_cbmfont(): Using AddFontResourceA()
+archdep_register_cbmfont(): According to Windows, the CBM font was succesfully registered.
+archdep_register_cbmfont(): According to Windows, the CBM font was succesfully registered.
+ 
+ 
+*** VICE Version 3.8 ***
+*** VICE Version 3.8 ***
+ 
+ 
+Welcome to x64sc, the free portable C64 Emulator.
+Welcome to x64sc, the free portable C64 Emulator.
+ 
+ 
+Current VICE team members:
+Current VICE team members:
+Pottendo, Marco van den Heuvel, Fabrizio Gennari, Groepaz, Errol Smith, 
+Pottendo, Marco van den Heuvel, Fabrizio Gennari, Groepaz, Errol Smith, 
+Ingo Korb, Olaf Seibert, Marcus Sutton, Kajtar Zsolt, AreaScout, Bas Wassink, 
+Ingo Korb, Olaf Seibert, Marcus Sutton, Kajtar Zsolt, AreaScout, Bas Wassink, 
+Michael C. Martin, Christopher Phillips, David Hogan, Empathic Qubit, 
+Michael C. Martin, Christopher Phillips, David Hogan, Empathic Qubit, 
+Roberto Muscedere, June Tate-Gans, Pablo Roldan.
+Roberto Muscedere, June Tate-Gans, Pablo Roldan.
+ 
+ 
+This is free software with ABSOLUTELY NO WARRANTY.
+This is free software with ABSOLUTELY NO WARRANTY.
+See the "About VICE" command for more info.
+See the "About VICE" command for more info.
+ 
+ 
+random seed was: 0x662524bc
+random seed was: 0x662524bc
+command line was: C:\C64\GTKVICE\bin\x64sc.exe -logfile demo1.prg-vice.log demo1.prg
+command line was: C:\C64\GTKVICE\bin\x64sc.exe -logfile demo1.prg-vice.log demo1.prg
+VICE system file directory: C:\C64\GTKVICE\bin\...
+VICE system file directory: C:\C64\GTKVICE\bin\...
+Loading system file `C:\C64\GTKVICE\bin\..\C64\kernal-901227-03.bin'.
+Loading system file `C:\C64\GTKVICE\bin\..\C64\kernal-901227-03.bin'.
+C64MEM:  Kernal rev #3 ($03) Sum: 50954 ($C70A) SHA1: 1d503e56df85a62fee696e7618dc5b4e781df1bb.
+C64MEM: Kernal rev #3 ($03) Sum: 50954 ($C70A) SHA1: 1d503e56df85a62fee696e7618dc5b4e781df1bb.
+Loading system file `C:\C64\GTKVICE\bin\..\C64\basic-901226-01.bin'.
+Loading system file `C:\C64\GTKVICE\bin\..\C64\basic-901226-01.bin'.
+Loading system file `C:\C64\GTKVICE\bin\..\C64\chargen-901225-01.bin'.
+Loading system file `C:\C64\GTKVICE\bin\..\C64\chargen-901225-01.bin'.
+Palette:  Loading palette `C:\C64\GTKVICE\bin\..\PRINTER\mps803.vpl'.
+Palette: Loading palette `C:\C64\GTKVICE\bin\..\PRINTER\mps803.vpl'.
+Loading system file `C:\C64\GTKVICE\bin\..\PRINTER\nl10.bin'.
+Loading system file `C:\C64\GTKVICE\bin\..\PRINTER\nl10.bin'.
+Palette:  Loading palette `C:\C64\GTKVICE\bin\..\PRINTER\nl10.vpl'.
+Palette: Loading palette `C:\C64\GTKVICE\bin\..\PRINTER\nl10.vpl'.
+NL10:  Printer driver initialized.
+NL10: Printer driver initialized.
+Palette:  Loading palette `C:\C64\GTKVICE\bin\..\PRINTER\1520.vpl'.
+Palette: Loading palette `C:\C64\GTKVICE\bin\..\PRINTER\1520.vpl'.
+Loading system file `C:\C64\GTKVICE\bin\..\DRIVES\dos1540-325302+3-01.bin'.
+Loading system file `C:\C64\GTKVICE\bin\..\DRIVES\dos1540-325302+3-01.bin'.
+Loading system file `C:\C64\GTKVICE\bin\..\DRIVES\dos1541-325302-01+901229-05.bin'.
+Loading system file `C:\C64\GTKVICE\bin\..\DRIVES\dos1541-325302-01+901229-05.bin'.
+Loading system file `C:\C64\GTKVICE\bin\..\DRIVES\dos1541ii-251968-03.bin'.
+Loading system file `C:\C64\GTKVICE\bin\..\DRIVES\dos1541ii-251968-03.bin'.
+Loading system file `C:\C64\GTKVICE\bin\..\DRIVES\dos1570-315090-01.bin'.
+Loading system file `C:\C64\GTKVICE\bin\..\DRIVES\dos1570-315090-01.bin'.
+Loading system file `C:\C64\GTKVICE\bin\..\DRIVES\dos1571-310654-05.bin'.
+Loading system file `C:\C64\GTKVICE\bin\..\DRIVES\dos1571-310654-05.bin'.
+Loading system file `C:\C64\GTKVICE\bin\..\DRIVES\dos1581-318045-02.bin'.
+Loading system file `C:\C64\GTKVICE\bin\..\DRIVES\dos1581-318045-02.bin'.
+DriveROM: Error -  2000 ROM image not found. Hardware-level 2000 emulation is not available.
+DriveROM: Error - 2000 ROM image not found. Hardware-level 2000 emulation is not available.
+DriveROM: Error -  4000 ROM image not found. Hardware-level 4000 emulation is not available.
+DriveROM: Error - 4000 ROM image not found. Hardware-level 4000 emulation is not available.
+DriveROM: Error -  CMDHD ROM image not found. Hardware-level CMDHD emulation is not available.
+DriveROM: Error - CMDHD ROM image not found. Hardware-level CMDHD emulation is not available.
+Loading system file `C:\C64\GTKVICE\bin\..\DRIVES\dos2031-901484-03+05.bin'.
+Loading system file `C:\C64\GTKVICE\bin\..\DRIVES\dos2031-901484-03+05.bin'.
+Loading system file `C:\C64\GTKVICE\bin\..\DRIVES\dos2040-901468-06+07.bin'.
+Loading system file `C:\C64\GTKVICE\bin\..\DRIVES\dos2040-901468-06+07.bin'.
+Loading system file `C:\C64\GTKVICE\bin\..\DRIVES\dos3040-901468-11-13.bin'.
+Loading system file `C:\C64\GTKVICE\bin\..\DRIVES\dos3040-901468-11-13.bin'.
+Loading system file `C:\C64\GTKVICE\bin\..\DRIVES\dos4040-901468-14-16.bin'.
+Loading system file `C:\C64\GTKVICE\bin\..\DRIVES\dos4040-901468-14-16.bin'.
+Loading system file `C:\C64\GTKVICE\bin\..\DRIVES\dos1001-901887+8-01.bin'.
+Loading system file `C:\C64\GTKVICE\bin\..\DRIVES\dos1001-901887+8-01.bin'.
+Loading system file `C:\C64\GTKVICE\bin\..\DRIVES\dos9000-300516+7-revC.bin'.
+Loading system file `C:\C64\GTKVICE\bin\..\DRIVES\dos9000-300516+7-revC.bin'.
+Drive:  Finished loading ROM images.
+Drive: Finished loading ROM images.
+VIC-II:  Initializing chip model "MOS6567R8" (65 cycles per line, 263 raster lines).
+VIC-II: Initializing chip model "MOS6567R8" (65 cycles per line, 263 raster lines).
+using GTK3 backend: DirectX
+using GTK3 backend: DirectX
+chip_name: VICII
+chip_name: VICII
+ screen_size: 384 x 263
+ screen_size: 384 x 263
+ first/lastline: 0 x 0
+ first/lastline: 0 x 0
+ gfx_size: 320 x 200
+ gfx_size: 320 x 200
+ gfx_position: 32 x 51
+ gfx_position: 32 x 51
+ first/last displayed line: 28 x 274
+ first/last displayed line: 28 x 274
+ extra offscreen border left/right: 0 x 0
+ extra offscreen border left/right: 0 x 0
+ screen_display_wh: 0.000000 x 0.000000
+ screen_display_wh: 0.000000 x 0.000000
+ canvas_physical_wh: 0 x 0
+ canvas_physical_wh: 0 x 0
+ scalexy: 2 x 2
+ scalexy: 2 x 2
+ sizexy: 1 x 1
+ sizexy: 1 x 1
+ rmode: 1
+ rmode: 1
+ aspect ratio: 0.750000
+ aspect ratio: 0.750000
+ hstretch: 0
+ hstretch: 0
+ vstretch: 0
+ vstretch: 0
+ initializing with width, height: 704 x 369
+ initializing with width, height: 704 x 369
+Created render thread 0
+Created render thread 0
+Render thread initialised
+Render thread initialised
+Sound:  Available sound devices: dx wmm dummy fs dump wav voc iff aiff mp3 flac ogg soundmovie
+Sound: Available sound devices: dx wmm dummy fs dump wav voc iff aiff mp3 flac ogg soundmovie
+MIDIdrv:  init driver
+MIDIdrv: init driver
+MIDIdrv:  found 0 sources
+MIDIdrv: found 0 sources
+MIDIdrv:  found 1 destinations
+MIDIdrv: found 1 destinations
+MIDIdrv:  destination #0: Microsoft GS Wavetable Synth
+MIDIdrv: destination #0: Microsoft GS Wavetable Synth
+Loading keymap `C:\C64\GTKVICE\bin\..\C64\gtk3_sym.vkm'.
+Loading keymap `C:\C64\GTKVICE\bin\..\C64\gtk3_sym.vkm'.
+Hotkeys:  Initializing hotkeys.
+Hotkeys: Initializing hotkeys.
+Hotkeys:  parsing default file 'C:\C64\GTKVICE\bin\..\hotkeys\hotkeys.vhk' for machine C64
+Hotkeys: parsing default file 'C:\C64\GTKVICE\bin\..\hotkeys\hotkeys.vhk' for machine C64
+Hotkeys:  OK.
+Hotkeys: OK.
+Main CPU: starting at ($FFFC).
+Main CPU: starting at ($FFFC).
+Main CPU: RESET.
+Main CPU: RESET.
+AUTOSTART:  Autodetecting image type of `demo1.prg'.
+AUTOSTART: Autodetecting image type of `demo1.prg'.
+Filesystem Image Probe: Error -  Import GCR: Unknown GCR image version 48.
+Filesystem Image Probe: Error - Import GCR: Unknown GCR image version 48.
+Filesystem Image:  Unknown disk image `demo1.prg'.
+Filesystem Image: Unknown disk image `demo1.prg'.
+Tape: Error -  Cannot open file `demo1.prg'
+Tape: Error - Cannot open file `demo1.prg'
+Error -  no CRT header found.
+Error - no CRT header found.
+CART: 'demo1.prg' is not a valid CRT file.
+CART: 'demo1.prg' is not a valid CRT file.
+AUTOSTART:  Loading PRG file `demo1.prg' with autostart disk image.
+AUTOSTART: Loading PRG file `demo1.prg' with autostart disk image.
+AUTOSTART:  Resetting drive 8
+AUTOSTART: Resetting drive 8
+AUTOSTART:  Resetting the machine to autostart 'DEMO1'
+AUTOSTART: Resetting the machine to autostart 'DEMO1'
+VIC-II:  VSP Bug: safe channels are: 45. Emulation of memory corruption is disabled.
+VIC-II: VSP Bug: safe channels are: 45. Emulation of memory corruption is disabled.
+AUTOSTART:  Turning Warp mode on.
+AUTOSTART: Turning Warp mode on.
+AUTOSTART:  `demo1.prg' recognized as program/p00 file.
+AUTOSTART: `demo1.prg' recognized as program/p00 file.
+Main CPU: RESET.
+Main CPU: RESET.
+Sound:  Opened device `dx', speed 48000Hz, fragment size 2.67ms, buffer size 32.00ms
+Sound: Opened device `dx', speed 48000Hz, fragment size 2.67ms, buffer size 32.00ms
+reSID: MOS6581, filter on, sampling rate 48000Hz - resampling, pass to 21600Hz
+reSID: MOS6581, filter on, sampling rate 48000Hz - resampling, pass to 21600Hz
+Sync reset
+Sync reset
+Unit 8:  RESET.
+Unit 8: RESET.
+AUTOSTART:  Loading program 'DEMO1'
+AUTOSTART: Loading program 'DEMO1'
+AUTOSTART:  Entered ROM at $e5d4
+AUTOSTART: Entered ROM at $e5d4
+AUTOSTART:  Searching for ...
+AUTOSTART: Searching for ...
+AUTOSTART:  Loading
+AUTOSTART: Loading
+AUTOSTART:  Entered ROM at $ea21
+AUTOSTART: Entered ROM at $ea21
+AUTOSTART:  Ready
+AUTOSTART: Ready
+AUTOSTART:  Turning Warp mode off.
+AUTOSTART: Turning Warp mode off.
+AUTOSTART:  Starting program.
+AUTOSTART: Starting program.
+AUTOSTART:  Restoring FileSystemDevice8 to 1.
+AUTOSTART: Restoring FileSystemDevice8 to 1.
+AUTOSTART:  Restoring FSDevice8ConvertP00 to 1.
+AUTOSTART: Restoring FSDevice8ConvertP00 to 1.
+AUTOSTART:  Restoring FSDeviceLongNames to 0.
+AUTOSTART: Restoring FSDeviceLongNames to 0.
+AUTOSTART:  Done.
+AUTOSTART: Done.
+Sync reset
+Sync reset
+Initiating render thread 0 shutdown
+Initiating render thread 0 shutdown
+Joining render thread 0 ...
+Joining render thread 0 ...
+Render thread shutdown
+Render thread shutdown
+Joined render thread 0.
+Joined render thread 0.
+Warning -  archdep_unregister_cbmfont(): Pango version >= 1.5.12: skipping unregistering font with RemoveFontResourceA()
+Warning - archdep_unregister_cbmfont(): Pango version >= 1.5.12: skipping unregistering font with RemoveFontResourceA()
+
+Configure Flags:
+--enable-option-checking=fatal --enable-gtk3ui --disable-arch --disable-pdf-docs --enable-catweasel --enable-cpuhistory --enable-ethernet --enable-midi --enable-parsid --with-flac --with-gif --with-lame --with-libcurl --with-libieee1284 --with-mpg123 --with-png --with-portaudio --with-unzip-bin --with-vorbis
+
+Configure Flags:
+--enable-option-checking=fatal --enable-gtk3ui --disable-arch --disable-pdf-docs --enable-catweasel --enable-cpuhistory --enable-ethernet --enable-midi --enable-parsid --with-flac --with-gif --with-lame --with-libcurl --with-libieee1284 --with-mpg123 --with-png --with-portaudio --with-unzip-bin --with-vorbis
+
+Resources with non default values:
+
+Resources with non default values:
+LogFileName="demo1.prg-vice.log"
+LogFileName="demo1.prg-vice.log"
+NativeMonitor=1
+NativeMonitor=1
+MonitorXPos=179
+MonitorXPos=179
+MonitorYPos=237
+MonitorYPos=237
+MonitorWidth=736
+MonitorWidth=736
+MonitorHeight=863
+MonitorHeight=863
+MonitorFont="Monospace Bold 11"
+MonitorFont="Monospace Bold 11"
+MonitorBG="rgb(53,132,228)"
+MonitorBG="rgb(53,132,228)"
+Window0Height=966
+Window0Height=966
+Window0Width=1020
+Window0Width=1020
+Window0Xpos=855
+Window0Xpos=855
+Window0Ypos=287
+Window0Ypos=287
+MachineVideoStandard=2
+MachineVideoStandard=2
+MachinePowerFrequency=60
+MachinePowerFrequency=60
+IECReset=1
+IECReset=1
+CIA1Model=0
+CIA1Model=0
+CIA2Model=0
+CIA2Model=0
+VICIIFilter=0
+VICIIFilter=0
+VICIIModel=3
+VICIIModel=3
+SidModel=0
+SidModel=0
+GlueLogic=0
+GlueLogic=0
+
+reconstructed commandline options (might be incomplete):
+
+reconstructed commandline options (might be incomplete):
+-default -logfile "demo1.prg-vice.log" -nativemonitor -monitorfont "Monospace Bold 11" -monitorbg "rgb(53,132,228)" -monitorxpos "179" -monitorypos "237" -monitorwidth "736" -monitorheight "863" -windowxpos "855" -windowypos "287" -windowwidth "1020" -windowheight "966" -ntsc -power60 -cia1model "0" -cia2model "0" -iecreset "1" -VICIIfilter "0" -VICIImodel "3" -sidenginemodel "0" -gluelogictype "0"
+
+-default -logfile "demo1.prg-vice.log" -nativemonitor -monitorfont "Monospace Bold 11" -monitorbg "rgb(53,132,228)" -monitorxpos "179" -monitorypos "237" -monitorwidth "736" -monitorheight "863" -windowxpos "855" -windowypos "287" -windowwidth "1020" -windowheight "966" -ntsc -power60 -cia1model "0" -cia2model "0" -iecreset "1" -VICIIfilter "0" -VICIImodel "3" -sidenginemodel "0" -gluelogictype "0"
+
+VICE thread initiating shutdown
+VICE thread initiating shutdown
+VICE thread is exiting
+VICE thread is exiting
+VICE thread has been joined.
+VICE thread has been joined.
+VIC-II:  VSP Bug: safe channels are: 17. Emulation of memory corruption is disabled.
+VIC-II: VSP Bug: safe channels are: 17. Emulation of memory corruption is disabled.
+Sound:  Closing device `dx'
+Sound: Closing device `dx'
+Hotkeys:  shutting down.
+Hotkeys: shutting down.
