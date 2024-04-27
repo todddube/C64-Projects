@@ -10,7 +10,7 @@ main:
   sta $d020
   sta $d021
 
-  lda #'.'          // fill the screen with .
+  lda #'#'          // fill the screen with .
   jsr fillScreen
 
 loop:

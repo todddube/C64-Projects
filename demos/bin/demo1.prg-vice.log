@@ -32,8 +32,8 @@ See the "About VICE" command for more info.
 See the "About VICE" command for more info.
  
  
-random seed was: 0x662524bc
-random seed was: 0x662524bc
+random seed was: 0x66252642
+random seed was: 0x66252642
 command line was: C:\C64\GTKVICE\bin\x64sc.exe -logfile demo1.prg-vice.log demo1.prg
 command line was: C:\C64\GTKVICE\bin\x64sc.exe -logfile demo1.prg-vice.log demo1.prg
 VICE system file directory: C:\C64\GTKVICE\bin\...
@@ -168,8 +168,8 @@ AUTOSTART:  Resetting drive 8
 AUTOSTART: Resetting drive 8
 AUTOSTART:  Resetting the machine to autostart 'DEMO1'
 AUTOSTART: Resetting the machine to autostart 'DEMO1'
-VIC-II:  VSP Bug: safe channels are: 45. Emulation of memory corruption is disabled.
-VIC-II: VSP Bug: safe channels are: 45. Emulation of memory corruption is disabled.
+VIC-II:  VSP Bug: safe channels are: 0347. Emulation of memory corruption is disabled.
+VIC-II: VSP Bug: safe channels are: 0347. Emulation of memory corruption is disabled.
 AUTOSTART:  Turning Warp mode on.
 AUTOSTART: Turning Warp mode on.
 AUTOSTART:  `demo1.prg' recognized as program/p00 file.
@@ -186,8 +186,8 @@ Unit 8:  RESET.
 Unit 8: RESET.
 AUTOSTART:  Loading program 'DEMO1'
 AUTOSTART: Loading program 'DEMO1'
-AUTOSTART:  Entered ROM at $e5d4
-AUTOSTART: Entered ROM at $e5d4
+AUTOSTART:  Entered ROM at $e5d1
+AUTOSTART: Entered ROM at $e5d1
 AUTOSTART:  Searching for ...
 AUTOSTART: Searching for ...
 AUTOSTART:  Loading
@@ -286,8 +286,8 @@ VICE thread is exiting
 VICE thread is exiting
 VICE thread has been joined.
 VICE thread has been joined.
-VIC-II:  VSP Bug: safe channels are: 17. Emulation of memory corruption is disabled.
-VIC-II: VSP Bug: safe channels are: 17. Emulation of memory corruption is disabled.
+VIC-II:  VSP Bug: safe channels are: 0267. Emulation of memory corruption is disabled.
+VIC-II: VSP Bug: safe channels are: 0267. Emulation of memory corruption is disabled.
 Sound:  Closing device `dx'
 Sound: Closing device `dx'
 Hotkeys:  shutting down.
