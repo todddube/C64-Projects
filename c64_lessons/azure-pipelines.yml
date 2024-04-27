@@ -1,0 +1,79 @@
+# C64 KickAss build and deploy pipeline
+# Requirements:
+# - Private Build agent, my pool is called Pi4 (change to your pool name)
+#     -DevOps agent should be installed in /home/pi/agent
+# - On build agent host you will need:
+#       -KickAssembler needs to be installed in /usr/local/bin (download the KickAss.zip unzip and upload to /usr/local/bin)
+#       -java installed to run kickassembler jar (sudo apt install default-jre)
+#       -lftp needs to be installed (sudo apt get lftp) this is because FtpUpload task uses a command that is unrecognized in UltimateII
+# - A variable group called c64 needs to be created containing the following variables:
+#     -variable ftpusername containing the UltimateII user name (usually root)
+#     -variable ftppassword containing the UltimateII user name's password (usually empty)
+#     -variable ftphost containing the UltimateII ip address or hostname
+
+trigger: none
+
+variables:
+  - group: c64  #variable group containing the ftp related variables and values
+
+pool:
+  name: Pi4     #the private pool running on Pi4 (any linux private pool on the same network as UltimateII cardridge will work)
+
+stages:
+  - stage: CI
+    jobs:
+    - job: BUILD
+      displayName: BUILD
+
+      steps:
+      #Run a clean checkout 
+      - checkout: self
+        clean: true
+
+      # Assemble all the files in the directories that have the name main.asm
+      # The actual prg file bears the name of the directory. F.i. lesson01/main.asm will be called lesson01.prg
+      - script: | 
+          set -e
+          echo "create artefact dir"
+          mkdir $(Pipeline.Workspace)/s/c64
+
+          for d in */; do
+            prg=$(echo "$d"|sed -s 's/\///g')
+
+            if [ -f $(Pipeline.Workspace)/s/$d/main.asm ]; then
+              echo "Building $prg"
+              java -jar /usr/local/bin/KickAss.jar $(Pipeline.Workspace)/s/$d/main.asm -odir $(Pipeline.Workspace)/s/$d/build -o $(Pipeline.Workspace)/s/$d/build/$prg.prg
+            
+              echo "Copying $prg"
+              cp $(Pipeline.Workspace)/s/$d/build/$prg.prg $(Pipeline.Workspace)/s/c64
+            fi
+          done
+        displayName: 'Assemble Code'
+
+      # Make an artefact of all the assembled prg files which were copied in to /c64 in the previous step
+      - task: PublishPipelineArtifact@1
+        inputs:
+          path: '$(Pipeline.Workspace)/s/c64'
+          artifactName: c64
+          artifactType: 'pipeline' 
+
+  - stage: CD
+    dependsOn: CI
+    condition: succeeded('CI')
+    jobs:
+    - job: DEPLOY 
+      steps:
+      #We don't need to checkout the code, we have the artefact
+      - checkout: none
+
+      #Download the artefact (we should still have it unless you have more than 1 host in your build pool)
+      - task: DownloadPipelineArtifact@2
+        inputs:
+          source: 'current' 
+          path: '$(Pipeline.Workspace)' 
+
+      #Run lftp to mput the *.prg files from the artefact into the directory /Usb0/Dev
+      #So after this stage has ran, you should have all your prg files in the directory /Usb0/dev where you can mount or DMA them with the UltimateII cardridge
+      #We are using this instead of the FtpUpload task, because that sends a command that the Ultimate II doesn't recognize
+      - script: lftp -u "$(ftpusername)","$(ftppassword)" -e "lcd $(Pipeline.Workspace)/c64;cd /Usb0;cd Dev;mput *.prg;quit" $(ftphost)
+        displayName: "Upload all PRGs to Ultimate II"
