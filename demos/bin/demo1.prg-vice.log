@@ -32,8 +32,8 @@ See the "About VICE" command for more info.
 See the "About VICE" command for more info.
  
  
-random seed was: 0x662cee7b
-random seed was: 0x662cee7b
+random seed was: 0x66539356
+random seed was: 0x66539356
 command line was: C:\C64\GTKVICE\bin\x64sc.exe -logfile demo1.prg-vice.log demo1.prg
 command line was: C:\C64\GTKVICE\bin\x64sc.exe -logfile demo1.prg-vice.log demo1.prg
 VICE system file directory: C:\C64\GTKVICE\bin\...
@@ -168,8 +168,8 @@ AUTOSTART:  Resetting drive 8
 AUTOSTART: Resetting drive 8
 AUTOSTART:  Resetting the machine to autostart 'DEMO1'
 AUTOSTART: Resetting the machine to autostart 'DEMO1'
-VIC-II:  VSP Bug: safe channels are: 023467. Emulation of memory corruption is disabled.
-VIC-II: VSP Bug: safe channels are: 023467. Emulation of memory corruption is disabled.
+VIC-II:  VSP Bug: safe channels are: 067. Emulation of memory corruption is disabled.
+VIC-II: VSP Bug: safe channels are: 067. Emulation of memory corruption is disabled.
 AUTOSTART:  Turning Warp mode on.
 AUTOSTART: Turning Warp mode on.
 AUTOSTART:  `demo1.prg' recognized as program/p00 file.
@@ -186,8 +186,8 @@ Unit 8:  RESET.
 Unit 8: RESET.
 AUTOSTART:  Loading program 'DEMO1'
 AUTOSTART: Loading program 'DEMO1'
-AUTOSTART:  Entered ROM at $e5cf
-AUTOSTART: Entered ROM at $e5cf
+AUTOSTART:  Entered ROM at $e5d1
+AUTOSTART: Entered ROM at $e5d1
 AUTOSTART:  Searching for ...
 AUTOSTART: Searching for ...
 AUTOSTART:  Loading
@@ -250,10 +250,10 @@ Window0Height=966
 Window0Height=966
 Window0Width=1020
 Window0Width=1020
-Window0Xpos=726
-Window0Xpos=726
-Window0Ypos=270
-Window0Ypos=270
+Window0Xpos=871
+Window0Xpos=871
+Window0Ypos=295
+Window0Ypos=295
 MachineVideoStandard=2
 MachineVideoStandard=2
 MachinePowerFrequency=60
@@ -276,9 +276,9 @@ GlueLogic=0
 reconstructed commandline options (might be incomplete):
 
 reconstructed commandline options (might be incomplete):
--default -logfile "demo1.prg-vice.log" -nativemonitor -monitorfont "Monospace Bold 11" -monitorbg "rgb(53,132,228)" -monitorxpos "179" -monitorypos "237" -monitorwidth "736" -monitorheight "863" -windowxpos "726" -windowypos "270" -windowwidth "1020" -windowheight "966" -ntsc -power60 -cia1model "0" -cia2model "0" -iecreset "1" -VICIIfilter "0" -VICIImodel "3" -sidenginemodel "0" -gluelogictype "0"
+-default -logfile "demo1.prg-vice.log" -nativemonitor -monitorfont "Monospace Bold 11" -monitorbg "rgb(53,132,228)" -monitorxpos "179" -monitorypos "237" -monitorwidth "736" -monitorheight "863" -windowxpos "871" -windowypos "295" -windowwidth "1020" -windowheight "966" -ntsc -power60 -cia1model "0" -cia2model "0" -iecreset "1" -VICIIfilter "0" -VICIImodel "3" -sidenginemodel "0" -gluelogictype "0"
 
--default -logfile "demo1.prg-vice.log" -nativemonitor -monitorfont "Monospace Bold 11" -monitorbg "rgb(53,132,228)" -monitorxpos "179" -monitorypos "237" -monitorwidth "736" -monitorheight "863" -windowxpos "726" -windowypos "270" -windowwidth "1020" -windowheight "966" -ntsc -power60 -cia1model "0" -cia2model "0" -iecreset "1" -VICIIfilter "0" -VICIImodel "3" -sidenginemodel "0" -gluelogictype "0"
+-default -logfile "demo1.prg-vice.log" -nativemonitor -monitorfont "Monospace Bold 11" -monitorbg "rgb(53,132,228)" -monitorxpos "179" -monitorypos "237" -monitorwidth "736" -monitorheight "863" -windowxpos "871" -windowypos "295" -windowwidth "1020" -windowheight "966" -ntsc -power60 -cia1model "0" -cia2model "0" -iecreset "1" -VICIIfilter "0" -VICIImodel "3" -sidenginemodel "0" -gluelogictype "0"
 
 VICE thread initiating shutdown
 VICE thread initiating shutdown
@@ -286,8 +286,8 @@ VICE thread is exiting
 VICE thread is exiting
 VICE thread has been joined.
 VICE thread has been joined.
-VIC-II:  VSP Bug: safe channels are: 2345. Emulation of memory corruption is disabled.
-VIC-II: VSP Bug: safe channels are: 2345. Emulation of memory corruption is disabled.
+VIC-II:  VSP Bug: safe channels are: 23567. Emulation of memory corruption is disabled.
+VIC-II: VSP Bug: safe channels are: 23567. Emulation of memory corruption is disabled.
 Sound:  Closing device `dx'
 Sound: Closing device `dx'
 Hotkeys:  shutting down.

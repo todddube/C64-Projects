@@ -11,6 +11,6 @@ Memory Map
 Default-segment:
   $0801-$080c Basic
   $080e-$080d Basic End
-  $1000-$1077 Unnamed
+  $1000-$1078 Unnamed
 
 Writing Symbol file: demo1.sym
