@@ -2,15 +2,12 @@ Output dir: C:\Users\todd\OneDrive\Documents\GitHub\C64-Projects\demos\bin
 parsing
 flex pass 1
 flex pass 2
-flex pass 3
 Output pass
-Writing prg file: demo1.prg
+Writing prg file: plasma_190.prg
 
 Memory Map
 ----------
 Default-segment:
-  $0801-$080c Basic
-  $080e-$080d Basic End
-  $1000-$1078 Unnamed
+  $0326-$03e1 Unnamed
 
-Writing Symbol file: demo1.sym
+Writing Symbol file: plasma_190.sym
