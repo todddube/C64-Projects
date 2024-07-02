@@ -1,20 +1,20 @@
 Output dir: C:\Users\todd\OneDrive\Documents\GitHub\C64-Projects\mystuff\bin
 parsing
-Got 20 errors and 0 warnings while executing:
-  (C:\Users\todd\OneDrive\Documents\GitHub\C64-Projects\mystuff\demo.asm 20:9) Error: Can't open file: inc/macro.inc
-  (C:\Users\todd\OneDrive\Documents\GitHub\C64-Projects\mystuff\demo.asm 156:2) Error: Macro command 'set_irq' not defined
-  (C:\Users\todd\OneDrive\Documents\GitHub\C64-Projects\mystuff\demo.asm 186:2) Error: Macro command 'set_irq' not defined
-  (C:\Users\todd\OneDrive\Documents\GitHub\C64-Projects\mystuff\demo.asm 187:2) Error: Macro command 'pop_stack' not defined
-  (C:\Users\todd\OneDrive\Documents\GitHub\C64-Projects\mystuff\demo.asm 210:2) Error: Macro command 'set_irq' not defined
+Got 593 errors and 0 warnings while executing:
+  (C:\Users\todd\OneDrive\Documents\GitHub\C64-Projects\mystuff\aquarium.asm 5:13) Error: Syntax error
+  (C:\Users\todd\OneDrive\Documents\GitHub\C64-Projects\mystuff\aquarium.asm 242:12) Error: Syntax error
+  (C:\Users\todd\OneDrive\Documents\GitHub\C64-Projects\mystuff\aquarium.asm 283:12) Error: Syntax error
+  (C:\Users\todd\OneDrive\Documents\GitHub\C64-Projects\mystuff\aquarium.asm 337:12) Error: Syntax error
+  (C:\Users\todd\OneDrive\Documents\GitHub\C64-Projects\mystuff\aquarium.asm 371:12) Error: Syntax error
   ...
 
-*/
- * = $0801 "Basic Upstart"
-BasicUpstart(init)
-#import "inc/macro.inc"
-        ^
+.byte $0B,$08,$EF,$00,$9E,$32,$30,$36
+.byte $31,$00,$00,$00
+   sei
+   inc $d030Q
+            ^
 
-Error: Can't open file: inc/macro.inc
-at line 20, column 9 in demo.asm
+Error: Syntax error
+at line 5, column 13 in aquarium.asm
 
 
