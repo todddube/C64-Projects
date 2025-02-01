@@ -1,4 +1,0 @@
-.label music_init=$1000
-.label start=$4000
-.label irq1=$4042
-.label music_play=$1003
