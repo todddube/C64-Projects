@@ -1,0 +1,7 @@
+.label scroll_text=$83f
+.label load_text=$828
+.label start=$80b
+.label scroll=$833
+.label message_end=$8a4
+.label message=$86d
+.label clear_screen=$815

@@ -1,0 +1,18 @@
+Output dir: C:\C64\KickAssembler\Examples\08.Namespace and libraries\bin
+parsing
+flex pass 1
+flex pass 2
+flex pass 3
+Output pass
+  Testing function visibility -- OK. | Unknown function '_16bit_nextArgument'
+Writing prg file: SimpleSplits.prg
+
+Memory Map
+----------
+Default-segment:
+  $0801-$080c Basic
+  $080e-$08a8 Basic End
+
+
+Made 1 asserts , 0 failed
+Writing Symbol file: SimpleSplits.sym

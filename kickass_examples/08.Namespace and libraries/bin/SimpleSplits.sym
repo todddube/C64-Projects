@@ -1,0 +1,14 @@
+.namespace MyMacros {
+}
+.label start=$80e {
+}
+.label irq1=$85d {
+}
+.namespace MyPseudoCommands {
+}
+.label irq2=$883 {
+}
+.namespace DemoSetup {
+}
+.namespace MyFunctions {
+}

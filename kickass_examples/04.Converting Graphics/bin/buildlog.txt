@@ -1,0 +1,17 @@
+Output dir: C:\C64\KickAssembler\Examples\04.Converting Graphics\bin
+parsing
+flex pass 1
+flex pass 2
+flex pass 3
+Output pass
+Writing prg file: scroll.prg
+
+Memory Map
+----------
+Default-segment:
+  $0801-$080c Basic
+  $080e-$080d Basic End
+  $1000-$1054 Unnamed
+  $2000-$27ff Charset
+
+Writing Symbol file: scroll.sym

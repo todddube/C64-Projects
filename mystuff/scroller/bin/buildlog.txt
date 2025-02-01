@@ -1,4 +1,4 @@
-Output dir: C:\Users\todd\OneDrive\Documents\GitHub\C64-Projects\mystuff\bin
+Output dir: C:\Users\todd\OneDrive\Documents\GitHub\C64-Projects\mystuff\scroller\bin
 parsing
 flex pass 1
 flex pass 2
