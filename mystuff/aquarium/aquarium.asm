@@ -452,70 +452,76 @@ label_0b1a
 label_0b1d = * + 1
    sbx #$42
    sax $21, y
+   jam
+   ora ( $ae ), y
+   cld
+   rol $fe
+   and $7a
+   bcs label_0b53
    lda $03
    anc #$c4
    pla
    lda $f053, y
    ldy $ed2f
    cpy $7d22
-   jam5e, x
-   ora ( $ae ), y
-   cld
-   rol $fe y
-   and $7a, x)
-   bcs label_0b53
-   lda $03)
-   anc #$c412, x
-   pla $133e, x
-   lda $f053, y
-   ldy $ed2f
-   cpy $7d22c6, x)
    isc $215e, x
    sbc $8f
    nop
-   sre ( $48 ), y $38a6, x
-   slo ( $64, x) x
+   sre ( $48 ), y
+   slo ( $64, x)
    rla $cd
    sre ( $1e, x)
    nop $0112, x
-   ora $133e, x = * + 2
+   ora $133e, x
    tax
    dec $14, x
    isc ( $c6, x)
-   ror $03, x $bac6, y
-   cli
+   ror $03, x
+
 label_0b53
-   rol $38a6, x, y
+   rol $38a6, x
    nop $c4bc, x
-   sre $719d, y ( $3c, x)
+   sre $719d, y
    asl
- $a2f2, x
-label_0b5f = * + 282
+
+label_0b5f = * + 2
    dec $0ad7
-   lsr $65b6, x $48, x
+   lsr $65b6, x
    jam
    sbc $bac6, y
    cli
-   rla $60 ), y
-   isc $9a3d, y $3a, x
+   rla $60
+   isc $9a3d, y
    jam
    sax ( $3c, x)
    rol $b274
-   shy $a2f2, x6, x
+   shy $a2f2, x
    sty $0e82
    rts
    dec $48, x
-   slo $f581, x $2d09, x
-   dcp $795a75 ), y
+   slo $f581, x
+   dcp $795a
    lda #$b8
-   sre ( $fa ), y3
+   sre ( $fa ), y
    ora $3a, x
    lax $7c85
    jam
    rla $55
    dcp $a3d6, x
-   stx $79 x
-   sbc
+   stx $79
+   sbc #$1f
+   sax $243f
+   ror $2d09, x
+   rra ( $75 ), y
+   lax $3b, y
+   arr #$33
+   nop
+   lxa #$3e
+   tay
+   isc ( $ea ), y
+   lax $31
+   asl $c5, x
+   php
    bpl label_0bb2
    slo ( $2e ), y
    nop $fc

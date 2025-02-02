@@ -1,3 +1,16 @@
-Warning. Already have an inputfile. Won't use 'c:\Users\todd\OneDrive\Documents\GitHub\C64-Projects\kickass_examples\01.MusicIrq\MusicIrq.asm'
-Error: Inputfile '-' doesn't exist.
+Output dir: C:\Users\todd\OneDrive\Documents\GitHub\C64-Projects\kickass_examples\01.MusicIrq\bin
+parsing
+flex pass 1
+flex pass 2
+flex pass 3
+Output pass
+Writing prg file: MusicIrq.prg
+
+Memory Map
+----------
+Default-segment:
+  $0801-$080d Basic
+  $080e-$080d Basic End
+  $1000-$2290 Music
+  $4000-$405e Main Program
 
