@@ -1,9 +1,0 @@
-al C:1037 .exit
-al C:1040 .delay
-al C:1042 .delay_loop
-al C:1017 .loop
-al C:1000 .start
-al C:80b .upstartEnd
-al C:1046 .scroll_pos
-al C:1047 .text
-al C:1012 .scroll_loop

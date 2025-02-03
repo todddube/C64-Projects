@@ -1,4 +1,4 @@
-Output dir: C:\C64\KickAssembler\Examples\04.Converting Graphics\bin
+Output dir: C:\Users\todd\OneDrive\Documents\GitHub\C64-Projects\kickass_examples\04.Converting Graphics\bin
 parsing
 flex pass 1
 flex pass 2
@@ -14,4 +14,3 @@ Default-segment:
   $1000-$1054 Unnamed
   $2000-$27ff Charset
 
-Writing Symbol file: scroll.sym

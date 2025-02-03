@@ -1,8 +1,0 @@
-.label exit=$1037
-.label delay=$1040
-.label delay_loop=$1042
-.label loop=$1017
-.label start=$1000
-.label scroll_pos=$1046
-.label text=$1047
-.label scroll_loop=$1012

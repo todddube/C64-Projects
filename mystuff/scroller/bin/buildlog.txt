@@ -8,5 +8,7 @@ Writing prg file: scroller.prg
 Memory Map
 ----------
 Default-segment:
-  $0801-$08a3 Unnamed
+  $0801-$080c Basic Upstart
+  $0c00-$0c66 Main Program
+  $2000-$203e SpriteBox
 
