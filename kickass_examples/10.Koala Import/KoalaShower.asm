@@ -20,17 +20,18 @@ start:  	lda #$38
 			sta $d021
 			ldx #0
 
-loop1:		.for (var i=0; i<4; i++) {
+loop1:		.for (var i=0// i<4// i++) {
 				lda colorRam+i*$100,x
 				sta $d800+i*$100,x
 			}
+			
 			inx
 			bne loop1
 			jmp *
 
-*=$0c00	"ScreenRam"; 			.fill picture.getScreenRamSize(), picture.getScreenRam(i)
-*=$1c00	"ColorRam:"; colorRam: 	.fill picture.getColorRamSize(), picture.getColorRam(i)
-*=$2000	"Bitmap";				.fill picture.getBitmapSize(), picture.getBitmap(i)
+*=$0c00	"ScreenRam"// 			.fill picture.getScreenRamSize(), picture.getScreenRam(i)
+*=$1c00	"ColorRam:"// colorRam: 	.fill picture.getColorRamSize(), picture.getColorRam(i)
+*=$2000	"Bitmap"//				.fill picture.getBitmapSize(), picture.getBitmap(i)
 
 
 

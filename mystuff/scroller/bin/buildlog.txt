@@ -9,6 +9,5 @@ Memory Map
 ----------
 Default-segment:
   $0801-$080c Basic Upstart
-  $0c00-$0c66 Main Program
-  $2000-$203e SpriteBox
+  $0c00-$0cad Main Program
 

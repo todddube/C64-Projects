@@ -72,7 +72,7 @@ m2:		bne *-1
 }
 .pseudocommand @nop x {
 	ensureImmediateArgument(x)
-	.for (var i=0; i<x.getValue(); i++) nop
+	.for (var i=0// i<x.getValue()// i++) nop
 }
 
 

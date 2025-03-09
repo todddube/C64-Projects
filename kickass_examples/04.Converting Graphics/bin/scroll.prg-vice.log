@@ -15,7 +15,7 @@ Roberto Muscedere, June Tate-Gans, Pablo Roldan.
 This is free software with ABSOLUTELY NO WARRANTY.
 See the "About VICE" command for more info.
  
-random seed was: 0x679fe156
+random seed was: 0x67a67c10
 command line was: C:\C64\GTKVICE\bin\x64sc.exe -logfile scroll.prg-vice.log scroll.prg
 VICE system file directory: C:\C64\GTKVICE\bin\...
 Loading system file `C:\C64\GTKVICE\bin\..\C64\kernal-901227-03.bin'.
@@ -85,7 +85,7 @@ CART: 'scroll.prg' is not a valid CRT file.
 AUTOSTART: Loading PRG file `scroll.prg' with autostart disk image.
 AUTOSTART: Resetting drive 8
 AUTOSTART: Resetting the machine to autostart 'SCROLL'
-VIC-II: VSP Bug: safe channels are: 0345. Emulation of memory corruption is disabled.
+VIC-II: VSP Bug: safe channels are: 35. Emulation of memory corruption is disabled.
 AUTOSTART: Turning Warp mode on.
 AUTOSTART: `scroll.prg' recognized as program/p00 file.
 Main CPU: RESET.
@@ -94,7 +94,7 @@ reSID: MOS8580, filter on, sampling rate 48000Hz - resampling, pass to 21600Hz
 Sync reset
 Unit 8: RESET.
 AUTOSTART: Loading program 'SCROLL'
-AUTOSTART: Entered ROM at $e5d4
+AUTOSTART: Entered ROM at $e5d1
 AUTOSTART: Searching for ...
 AUTOSTART: Loading
 AUTOSTART: Entered ROM at $ea21
@@ -126,20 +126,21 @@ MonitorHeight=652
 MonitorFont="C64 Pro Mono Oblique 9"
 Window0Height=850
 Window0Width=1122
-Window0Xpos=748
-Window0Ypos=404
+Window0Xpos=700
+Window0Ypos=434
+VirtualDevice1=1
 VICIIPaletteFile="pepto-pal.vpl"
 VICIIExternalPalette=1
 VICIIFilter=2
 VICIIBorderMode=3
 
 reconstructed commandline options (might be incomplete):
--default -logfile "scroll.prg-vice.log" -saveres -fullscreen-decorations -monitorfont "C64 Pro Mono Oblique 9" -monitorxpos "116" -monitorypos "461" -monitorwidth "976" -monitorheight "652" -windowxpos "748" -windowypos "404" -windowwidth "1122" -windowheight "850" -VICIIfilter "2" -VICIIextpal -VICIIpalette "pepto-pal.vpl" -VICIIborders "3"
+-default -logfile "scroll.prg-vice.log" -saveres -fullscreen-decorations -monitorfont "C64 Pro Mono Oblique 9" -monitorxpos "116" -monitorypos "461" -monitorwidth "976" -monitorheight "652" -windowxpos "700" -windowypos "434" -windowwidth "1122" -windowheight "850" -virtualdev1 -VICIIfilter "2" -VICIIextpal -VICIIpalette "pepto-pal.vpl" -VICIIborders "3"
 
 VICE thread initiating shutdown
 VICE thread is exiting
 VICE thread has been joined.
 Writing configuration file `C:\Users\todd\AppData\Roaming\vice\vice.ini'.
-VIC-II: VSP Bug: safe channels are: 01257. Emulation of memory corruption is disabled.
+VIC-II: VSP Bug: safe channels are: 0145. Emulation of memory corruption is disabled.
 Sound: Closing device `dx'
 Hotkeys: shutting down.

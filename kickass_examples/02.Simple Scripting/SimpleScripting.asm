@@ -6,7 +6,7 @@
 .print ""
 
 .print "Lets do a countdown:"
-.for (var i=10; i>0; i--)			// <- For and while loops works like in other programming languages
+.for (var i=10// i>0// i--)			// <- For and while loops works like in other programming languages
 	.print i
 .print ""
 
@@ -21,14 +21,14 @@
 .print ""
 
 
-// Several commands can be written on the same line by using ';'
-.var a = 10; .var b = 20; .var c = sqrt(pow(a,2)+ pow(b,2))			// <- We also have the entire java math library
+// Several commands can be written on the same line by using '//'
+.var a = 10// .var b = 20// .var c = sqrt(pow(a,2)+ pow(b,2))			// <- We also have the entire java math library
 .print "Pythagoras says that c is " + c
 .print ""
 
 .print "Sinus:"
-.var i=0;
-.var spaceStr = "                          ";
+.var i=0//
+.var spaceStr = "                          "//
 .while (i++<10) {
 	.var x = 5+5*sin(i*2*PI/10)
 	.print spaceStr.substring(0,x)+"o"	

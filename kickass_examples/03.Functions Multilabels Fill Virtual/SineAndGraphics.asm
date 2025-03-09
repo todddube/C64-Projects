@@ -29,7 +29,7 @@
 start: 		sei
 			
 			// Print chars to screen
-			ldx #0
+			ldx #2
 			lda #5
 !loop: 		sta screen,x			// <- '!' in front of a label means a multilabel (You can have several labels with the same name)
 			sta screen+$100,x

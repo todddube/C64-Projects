@@ -58,8 +58,8 @@ start:		sei
 	}
 		
 	.pseudocommand irqEnd line : addr {  		 
-				.if (line.getType()!=AT_NONE) {lda line; sta $d012; }	
-				.if (addr.getType()!=AT_NONE) {lda #<addr.getValue(); sta $0314; lda #>addr.getValue(); sta $0315; }	
+				.if (line.getType()!=AT_NONE) {lda line// sta $d012// }	
+				.if (addr.getType()!=AT_NONE) {lda #<addr.getValue()// sta $0314// lda #>addr.getValue()// sta $0315// }	
 				jmp $ea81
 	}
 #else
@@ -75,8 +75,8 @@ start:		sei
 
 
 	.pseudocommand irqEnd line : addr {
-				.if (line.getType()!=AT_NONE) {lda line; sta $d012; }	
-				.if (addr.getType()!=AT_NONE) {lda #<addr.getValue(); sta $fffe; lda #>addr.getValue(); sta $ffff; }	
+				.if (line.getType()!=AT_NONE) {lda line// sta $d012// }	
+				.if (addr.getType()!=AT_NONE) {lda #<addr.getValue()// sta $fffe// lda #>addr.getValue()// sta $ffff// }	
 				pla
 				tay
 				pla

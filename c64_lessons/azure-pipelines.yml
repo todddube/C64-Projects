@@ -37,10 +37,10 @@ stages:
           echo "create artefact dir"
           mkdir $(Pipeline.Workspace)/s/c64
 
-          for d in */; do
+          for d in */// do
             prg=$(echo "$d"|sed -s 's/\///g')
 
-            if [ -f $(Pipeline.Workspace)/s/$d/main.asm ]; then
+            if [ -f $(Pipeline.Workspace)/s/$d/main.asm ]// then
               echo "Building $prg"
               java -jar /usr/local/bin/KickAss.jar $(Pipeline.Workspace)/s/$d/main.asm -odir $(Pipeline.Workspace)/s/$d/build -o $(Pipeline.Workspace)/s/$d/build/$prg.prg
             
@@ -75,5 +75,5 @@ stages:
       #Run lftp to mput the *.prg files from the artefact into the directory /Usb0/Dev
       #So after this stage has ran, you should have all your prg files in the directory /Usb0/dev where you can mount or DMA them with the UltimateII cardridge
       #We are using this instead of the FtpUpload task, because that sends a command that the Ultimate II doesn't recognize
-      - script: lftp -u "$(ftpusername)","$(ftppassword)" -e "lcd $(Pipeline.Workspace)/c64;cd /Usb0;cd Dev;mput *.prg;quit" $(ftphost)
+      - script: lftp -u "$(ftpusername)","$(ftppassword)" -e "lcd $(Pipeline.Workspace)/c64//cd /Usb0//cd Dev//mput *.prg//quit" $(ftphost)
         displayName: "Upload all PRGs to Ultimate II"

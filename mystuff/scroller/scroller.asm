@@ -1,111 +1,73 @@
-// Basic upstart program
+// Basic upstart
 .pc = $0801 "Basic Upstart"
 :BasicUpstart($0c00)
 
-// Main program
 .pc = $0c00 "Main Program"
 
-    // Constants
-    .const SPRITE_0_POINTER = $07f8
-    .const SPRITE_ENABLE = $d015
-    .const SPRITE_0_X = $d000
-    .const SPRITE_0_Y = $d001
-    .const SPRITE_0_COLOR = $d027
-    .const RND = $d41b      // Random number generator
+start:
+    sei         // Disable interrupts
+    lda #$7f    // Disable CIA interrupts
+    sta $dc0d
+    sta $dd0d
 
-init:   
-    lda #$0f        // White color
-    sta SPRITE_0_COLOR
-    
-    lda #$80        // Point to sprite data
-    sta SPRITE_0_POINTER
-    
-    lda #$01        // Enable sprite 0
-    sta SPRITE_ENABLE
-    
-    // Initial position
-    lda #100
-    sta SPRITE_0_X
-    sta SPRITE_0_Y
+    lda #$35    // Bank out BASIC and KERNAL ROM
+    sta $01
 
-mainloop:
-    jsr move_sprite
-    jsr wait_frame
-    jmp mainloop
+    lda #$1b    // Set screen control register
+    sta $d011   // Enable screen, 25 rows
+    lda #$08    // Set scroll position to 0
+    sta $d016
 
-move_sprite:
-    // Update X position with momentum
-    lda RND         // Get random number
-    and #$03        // Limit to 0-3
+init_screen:
+    ldx #$00
+    lda #$20    // Space character
+clear:          // Clear screen
+    sta $0400,x
+    sta $0500,x
+    sta $0600,x
+    sta $06e8,x
+    dex
+    bne clear
+
+main_loop:
+    lda scroll_counter
     sec
-    sbc #$01        // Convert to -1 to +1
-    clc
-    adc SPRITE_0_X  // Add to current X position
-    
-    // Screen X boundary check (0-255)
-    cmp #250        // Check right boundary
-    bcc check_left
-    lda #249        // Bounce from right
-check_left:
-    cmp #20         // Check left boundary
-    bcs save_x
-    lda #21         // Bounce from left
-save_x:
-    sta SPRITE_0_X
+    sbc #$01    // Decrease scroll counter
+    and #$07    // Keep within 0-7
+    sta scroll_counter
+    sta $d016   // Update horizontal scroll register
 
-    // Update Y position with momentum
-    lda RND         // Get another random number
-    and #$03        // Limit to 0-3
-    sec
-    sbc #$01        // Convert to -1 to +1
-    clc
-    adc SPRITE_0_Y  // Add to current Y position
-    
-    // Screen Y boundary check (50-250)
-    cmp #220        // Check bottom boundary
-    bcc check_top
-    lda #219        // Bounce from bottom
-check_top:
-    cmp #50         // Check top boundary
-    bcs save_y
-    lda #51         // Bounce from top
-save_y:
-    sta SPRITE_0_Y
-    rts
+    bne skip_char   // If not zero, skip character shift
 
-wait_frame:
+    // Shift characters left
+    ldx #$00
+shift_loop:
+    lda $0401,x     // Get char from next position
+    sta $0400,x     // Store in current position
+    inx
+    cpx #39         // Do for first 39 chars
+    bne shift_loop
+
+    // Get new character
+    ldx text_pos
+    lda scroll_text,x
+    bne not_end
+    ldx #$00        // Reset to start if end reached
+    stx text_pos
+    lda scroll_text // Get first char again
+not_end:
+    sta $0400+39    // Put new char in last position
+    inc text_pos
+
+skip_char:
+    // Simple raster wait
     lda #$ff
+wait_raster:
     cmp $d012
-    bne wait_frame
-    rts
+    bne wait_raster
+    jmp main_loop
 
-direction_x:
-    .byte 1, -1, 0, 0   // Right, Left, No move, No move
-
-direction_y:
-    .byte 0, 0, 1, -1   // No move, No move, Down, Up
-
-// Sprite data at $2000
-.pc = $2000 "SpriteBox"
-sprite_data:
-    .byte %11111111, %11111111, %11111100
-    .byte %10000000, %00000000, %00000100
-    .byte %10000000, %00000000, %00000100
-    .byte %10000000, %00000000, %00000100
-    .byte %10000000, %00000000, %00000100
-    .byte %10000000, %00000000, %00000100
-    .byte %10000000, %00000000, %00000100
-    .byte %10000000, %00000000, %00000100
-    .byte %10000000, %00000000, %00000100
-    .byte %10000000, %00000000, %00000100
-    .byte %10000000, %00000000, %00000100
-    .byte %10000000, %00000000, %00000100
-    .byte %10000000, %00000000, %00000100
-    .byte %10000000, %00000000, %00000100
-    .byte %10000000, %00000000, %00000100
-    .byte %10000000, %00000000, %00000100
-    .byte %10000000, %00000000, %00000100
-    .byte %10000000, %00000000, %00000100
-    .byte %10000000, %00000000, %00000100
-    .byte %10000000, %00000000, %00000100
-    .byte %11111111, %11111111, %11111100
+scroll_counter: .byte $07
+text_pos:      .byte $00
+scroll_text:   .text "HELLO, THIS IS A SMOOTH SCROLLING TEXT DEMO FOR THE COMMODORE 64!   "
+               .byte $00

@@ -1,15 +1,8 @@
-archdep_register_cbmfont(): Registering CBM fonts using Pango 1.54.0
-succesfully registered 1 font(s) from C:\C64\GTKVICE\bin\..\common\C64_Pro_Mono-STYLE.ttf.
-succesfully registered 1 font(s) from C:\C64\GTKVICE\bin\..\common\PetMe1282Y.ttf.
-succesfully registered 1 font(s) from C:\C64\GTKVICE\bin\..\common\PetMe128.ttf.
-succesfully registered 1 font(s) from C:\C64\GTKVICE\bin\..\common\PetMe2X.ttf.
-succesfully registered 1 font(s) from C:\C64\GTKVICE\bin\..\common\PetMe2Y.ttf.
-succesfully registered 1 font(s) from C:\C64\GTKVICE\bin\..\common\PetMe642Y.ttf.
-succesfully registered 1 font(s) from C:\C64\GTKVICE\bin\..\common\PetMe64.ttf.
-succesfully registered 1 font(s) from C:\C64\GTKVICE\bin\..\common\PetMe.ttf.
-registered 8 font(s) total.
+archdep_register_cbmfont(): Registering CBM font using Pango 1.50.14
+archdep_register_cbmfont(): Using AddFontResourceA()
+archdep_register_cbmfont(): According to Windows, the CBM font was succesfully registered.
  
-*** VICE Version 3.9 ***
+*** VICE Version 3.8 ***
  
 Welcome to x64sc, the free portable C64 Emulator.
  
@@ -22,10 +15,9 @@ Roberto Muscedere, June Tate-Gans, Pablo Roldan.
 This is free software with ABSOLUTELY NO WARRANTY.
 See the "About VICE" command for more info.
  
-Main: random seed was: 0x679e758e
-Main: command line was: C:\C64\GTKVICE\bin\x64sc.exe C:\C64\KickAssembler\Examples\08.Namespace and libraries\SimpleSplits.prg
-Main: VICE system file directory: 'C:\C64\GTKVICE\bin\..'.
-Main: VICE system file search path: 'C:\C64\GTKVICE\bin//C:\C64\GTKVICE\bin\..'.
+random seed was: 0x67a76de2
+command line was: C:\C64\GTKVICE\bin\x64sc.exe -logfile Scroll.prg-vice.log Scroll.prg
+VICE system file directory: C:\C64\GTKVICE\bin\...
 Loading system file `C:\C64\GTKVICE\bin\..\C64\kernal-901227-03.bin'.
 C64MEM: Kernal rev #3 ($03) Sum: 50954 ($C70A) SHA1: 1d503e56df85a62fee696e7618dc5b4e781df1bb.
 Loading system file `C:\C64\GTKVICE\bin\..\C64\basic-901226-01.bin'.
@@ -52,19 +44,24 @@ Loading system file `C:\C64\GTKVICE\bin\..\DRIVES\dos1001-901887+8-01.bin'.
 Loading system file `C:\C64\GTKVICE\bin\..\DRIVES\dos9000-300516+7-revC.bin'.
 Drive: Finished loading ROM images.
 VIC-II: Initializing chip model "MOS8565" (63 cycles per line, 312 raster lines).
-Window: using GTK3 backend: DirectX
-Window: chip_name: VICII
-Window:  screen_size: 384 x 312
-Window:  gfx_size: 320 x 200
-Window:  gfx_position: 32 x 51
-Window:  first/last displayed line: 16 x 287
-Window:  extra offscreen border left/right: 0 x 0
-Window:  scalexy: 2 x 2 sizexy: 1 x 1
-Window:  rmode: 1
-Window:  aspect ratio: 0.936508
-Window:  hstretch: 0 vstretch: 0
-Window:  initializing with width, height: 704 x 507
-Render thread: Created render thread 0
+using GTK3 backend: DirectX
+chip_name: VICII
+ screen_size: 384 x 312
+ first/lastline: 0 x 0
+ gfx_size: 320 x 200
+ gfx_position: 32 x 51
+ first/last displayed line: 16 x 287
+ extra offscreen border left/right: 0 x 0
+ screen_display_wh: 0.000000 x 0.000000
+ canvas_physical_wh: 0 x 0
+ scalexy: 2 x 2
+ sizexy: 1 x 1
+ rmode: 1
+ aspect ratio: 0.936508
+ hstretch: 0
+ vstretch: 0
+ initializing with width, height: 704 x 507
+Created render thread 0
 Render thread initialised
 Palette: Loading palette `C:\C64\GTKVICE\bin\..\C64\pepto-pal.vpl'.
 Palette: Loading palette `C:\C64\GTKVICE\bin\..\C64\pepto-pal.vpl'.
@@ -73,32 +70,30 @@ MIDIdrv: init driver
 MIDIdrv: found 0 sources
 MIDIdrv: found 1 destinations
 MIDIdrv: destination #0: Microsoft GS Wavetable Synth
-Keymap: Loading keymap `C:\C64\GTKVICE\bin\..\C64\gtk3_sym.vkm'.
+Loading keymap `C:\C64\GTKVICE\bin\..\C64\gtk3_sym.vkm'.
 Hotkeys: Initializing hotkeys.
 Hotkeys: parsing default file 'C:\C64\GTKVICE\bin\..\hotkeys\hotkeys.vhk' for machine C64
 Hotkeys: OK.
-Main CPU: 
 Main CPU: starting at ($FFFC).
 Main CPU: RESET.
-VIC-II: VSP Bug: safe channels are: 67. Emulation of memory corruption is disabled.
-AUTOSTART: Autodetecting image type of `C:\C64\KickAssembler\Examples\08.Namespace and libraries\SimpleSplits.prg'.
+AUTOSTART: Autodetecting image type of `Scroll.prg'.
 Filesystem Image Probe: Error - Import GCR: Unknown GCR image version 48.
-Filesystem Image: Unknown disk image `C:\C64\KickAssembler\Examples\08.Namespace and libraries\SimpleSplits.prg'.
-Tape: Error - Cannot open file `C:\C64\KickAssembler\Examples\08.Namespace and libraries\SimpleSplits.prg'
+Filesystem Image: Unknown disk image `Scroll.prg'.
+Tape: Error - Cannot open file `Scroll.prg'
 Error - no CRT header found.
-CART: 'C:\C64\KickAssembler\Examples\08.Namespace and libraries\SimpleSplits.prg' is not a valid CRT file.
-AUTOSTART: Loading PRG file `C:\C64\KickAssembler\Examples\08.Namespace and libraries\SimpleSplits.prg' with autostart disk image.
+CART: 'Scroll.prg' is not a valid CRT file.
+AUTOSTART: Loading PRG file `Scroll.prg' with autostart disk image.
 AUTOSTART: Resetting drive 8
-AUTOSTART: Resetting the machine to autostart 'SIMPLESPLITS'
-VIC-II: VSP Bug: safe channels are: 25. Emulation of memory corruption is disabled.
+AUTOSTART: Resetting the machine to autostart 'SCROLL'
+VIC-II: VSP Bug: safe channels are: 01234567. Emulation of memory corruption is disabled.
 AUTOSTART: Turning Warp mode on.
-AUTOSTART: `C:\C64\KickAssembler\Examples\08.Namespace and libraries\SimpleSplits.prg' recognized as program/p00 file.
+AUTOSTART: `Scroll.prg' recognized as program/p00 file.
 Main CPU: RESET.
 Sound: Opened device `dx', speed 48000Hz, fragment size 2.67ms, buffer size 32.00ms
-Sound: reSID: MOS8580, filter on, sampling rate 48000Hz - resampling, pass to 21600Hz
-VSync: Sync reset
+reSID: MOS8580, filter on, sampling rate 48000Hz - resampling, pass to 21600Hz
+Sync reset
 Unit 8: RESET.
-AUTOSTART: Loading program 'SIMPLESPLITS'
+AUTOSTART: Loading program 'SCROLL'
 AUTOSTART: Entered ROM at $e5d4
 AUTOSTART: Searching for ...
 AUTOSTART: Loading
@@ -110,9 +105,41 @@ AUTOSTART: Restoring FileSystemDevice8 to 1.
 AUTOSTART: Restoring FSDevice8ConvertP00 to 1.
 AUTOSTART: Restoring FSDeviceLongNames to 0.
 AUTOSTART: Done.
-VSync: Sync reset
-Hotkeys: parsing default file 'C:\C64\GTKVICE\bin\..\hotkeys\hotkeys.vhk' for machine C64
-Hotkeys: OK.
+Sync reset
+Initiating render thread 0 shutdown
+Joining render thread 0 ...
+Joined render thread 0.
+Warning - archdep_unregister_cbmfont(): Pango version >= 1.5.12: skipping unregistering font with RemoveFontResourceA()
 
-Setting resources to default...
-VIC-II: VSP Bug: safe channels are: 2347. Emulation of memory corruption is disabled.
+Configure Flags:
+--enable-option-checking=fatal --enable-gtk3ui --disable-arch --disable-pdf-docs --enable-catweasel --enable-cpuhistory --enable-ethernet --enable-midi --enable-parsid --with-flac --with-gif --with-lame --with-libcurl --with-libieee1284 --with-mpg123 --with-png --with-portaudio --with-unzip-bin --with-vorbis
+
+Resources with non default values:
+LogFileName="Scroll.prg-vice.log"
+SaveResourcesOnExit=1
+FullscreenDecorations=1
+MonitorXPos=116
+MonitorYPos=461
+MonitorWidth=976
+MonitorHeight=652
+MonitorFont="C64 Pro Mono 9"
+Window0Height=850
+Window0Width=1122
+Window0Xpos=1116
+Window0Ypos=419
+VirtualDevice1=1
+VICIIPaletteFile="pepto-pal.vpl"
+VICIIExternalPalette=1
+VICIIFilter=2
+VICIIBorderMode=3
+
+reconstructed commandline options (might be incomplete):
+-default -logfile "Scroll.prg-vice.log" -saveres -fullscreen-decorations -monitorfont "C64 Pro Mono 9" -monitorxpos "116" -monitorypos "461" -monitorwidth "976" -monitorheight "652" -windowxpos "1116" -windowypos "419" -windowwidth "1122" -windowheight "850" -virtualdev1 -VICIIfilter "2" -VICIIextpal -VICIIpalette "pepto-pal.vpl" -VICIIborders "3"
+
+VICE thread initiating shutdown
+VICE thread is exiting
+VICE thread has been joined.
+Writing configuration file `C:\Users\todd\AppData\Roaming\vice\vice.ini'.
+VIC-II: VSP Bug: safe channels are: 01347. Emulation of memory corruption is disabled.
+Sound: Closing device `dx'
+Hotkeys: shutting down.

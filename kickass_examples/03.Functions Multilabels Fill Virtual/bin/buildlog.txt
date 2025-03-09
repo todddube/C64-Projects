@@ -1,0 +1,16 @@
+Output dir: C:\Users\todd\OneDrive\Documents\GitHub\C64-Projects\kickass_examples\03.Functions Multilabels Fill Virtual\bin
+parsing
+flex pass 1
+flex pass 2
+flex pass 3
+Output pass
+Writing prg file: SineAndGraphics.prg
+
+Memory Map
+----------
+Default-segment:
+  $0801-$080c Basic
+  $080e-$080d Basic End
+  $2000-$28bf Program
+  *$3c00-$3fff Virtual data
+

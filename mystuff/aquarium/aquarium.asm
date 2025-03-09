@@ -239,7 +239,7 @@ label_0974
    sta $d41a
    nop #$66
 
-label_098f = * + 1
+label_098f
    dcp $ffa4, y
    dcp $26f0
    nop $88, x
@@ -280,7 +280,7 @@ label_098f = * + 1
    dec $ad
    php
 
-label_09dd = * + 1
+label_09dd
    bcs label_0a24
    cmp ( $f1 ), y
    sbc $2902, y
@@ -334,7 +334,7 @@ label_0a24
    nop
    adc $8c7f, y
 
-label_0a4a = * + 1
+label0a4a
    nop $28
    sbc #$e5
    ldy $e9, x

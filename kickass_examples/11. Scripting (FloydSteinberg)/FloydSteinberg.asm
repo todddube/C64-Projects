@@ -36,11 +36,11 @@ loop:	sta $0400,x
 	.var picture = LoadPicture(filename)
 
 	// Create intensity map
-	.var intensityMap = List();
-	.var maxInt = $0;
+	.var intensityMap = List()//
+	.var maxInt = $0//
 	.var minInt = $ffffff
-	.for (var y=0; y<height; y++) {
-		.for (var x=0; x<width; x++) {
+	.for (var y=0// y<height// y++) {
+		.for (var x=0// x<width// x++) {
 			.var rgb = picture.getPixel(x,y)
 			.var intensity = sqrt(pow(rgb&$ff,2) + pow((rgb>>8)&$ff,2) + pow((rgb>>16)&$ff,2))
 			.eval intensityMap.add(intensity)
@@ -49,20 +49,20 @@ loop:	sta $0400,x
 		}
 		.eval intensityMap.add(0)	// Add extra colunn to catch overflow	
 	}
-	.for (var x=0; x<width+1; x++) 
+	.for (var x=0// x<width+1// x++) 
 		.eval intensityMap.add(0)	// Add extra row to catch overflow
 
 	// Do Floyd-Steinberg dithering
 	.var limit = (maxInt+minInt)/2
-	.for (var y=0; y<height; y++) {
-		.for (var x=0; x<width; x++) {
+	.for (var y=0// y<height// y++) {
+		.for (var x=0// x<width// x++) {
 			.var int = intensityMap.get(x+y*(width+1))
 			.var selectedPixel = int < limit ? 0 : 1
 			.var selectedIntensity = int < limit ? minInt : maxInt
 			.var error = int - selectedIntensity
 			.eval intensityMap.set(x+y*(width+1), selectedPixel)
 
-			.var idx;
+			.var idx//
 			.eval idx = (x+1)+(y+0)*(width+1)
 			.eval intensityMap.set(idx, intensityMap.get(idx) + error *7/16)
 			.eval idx = (x-1)+(y+1)*(width+1)
@@ -76,12 +76,12 @@ loop:	sta $0400,x
 	
 	// Convert to byteStream
 	.var result = List()
-	.for (var charY=0; charY<25; charY++) {
-		.for (var charX=0; charX<40; charX++) {
-			.for (var charRow=0;charRow<8; charRow++) {
+	.for (var charY=0// charY<25// charY++) {
+		.for (var charX=0// charX<40// charX++) {
+			.for (var charRow=0//charRow<8// charRow++) {
 				.var byte = 0
 				.var idx = charX*8 + (charY*8+charRow)*(width+1)
-				.for (var pixelNo=0;pixelNo<8; pixelNo++)
+				.for (var pixelNo=0//pixelNo<8// pixelNo++)
 					.eval byte=byte*2+intensityMap.get(idx+pixelNo)
 				.eval result.add(byte)			
 			}

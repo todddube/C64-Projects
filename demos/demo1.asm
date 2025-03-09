@@ -55,7 +55,7 @@ fillColors:
   sta COLOR_RAM + $100, y       // fill the current color at this color ram location offset by $100
   sta COLOR_RAM + $200, y       // fill the current color at this color ram location offset by $200
   sta COLOR_RAM + $2e8, y       // fill the current color at this color ram location offset by $2e8
-  //jsr getNextColor              // calling getNexColor again greates more "zigzag like strokes"; experiment with calling more or less of them   
+  //jsr getNextColor              // calling getNexColor again greates more "zigzag like strokes"// experiment with calling more or less of them   
   dey                           // decrement y and if not 00 then continue filling colour ram
   bne !-
   rts                           // return from subroutine

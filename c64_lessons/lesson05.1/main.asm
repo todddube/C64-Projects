@@ -1,5 +1,5 @@
 
-// 10 PRINT CHR$ (205.5 + RND (1)); : GOTO 10
+// 10 PRINT CHR$ (205.5 + RND (1))// : GOTO 10
 // in assmembly
 // SCROLL SCREEN UP WITH UNROLLED COPY CODE
 
@@ -48,9 +48,9 @@ shiftUp:
 !:
 
   //unrolled copy of the 25 lines, is this the fastest way? At least faster than indirect addressing
-.for(var line=1; line<25; line++){
+.for(var line=1// line<25// line++){
   lda $0400 + (line * 40), x            //load the character from the source line in A
-  sta $0400 + (line * 40) - 40 , x      //store the character on the same x position in previous line (destination line); effectively moving up
+  sta $0400 + (line * 40) - 40 , x      //store the character on the same x position in previous line (destination line)// effectively moving up
 }
   inx                       // increment the character counter
   cpx #$28                  // did we copy the 40 chars? Then movie to the next return from subroutine else keep copying

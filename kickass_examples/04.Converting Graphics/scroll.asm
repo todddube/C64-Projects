@@ -41,7 +41,7 @@ delay_loop: dex
             bne delay_loop
             rts
 
-scroll_pos: .byte 0
+scroll_pos: .byte 1
 
 text:       .text "hello world.."
             .byte $ff

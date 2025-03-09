@@ -1,0 +1,17 @@
+Output dir: C:\Users\todd\OneDrive\Documents\GitHub\C64-Projects\kickass_examples\10.Koala Import\bin
+parsing
+Got 3 errors and 0 warnings while executing:
+  (C:\Users\todd\OneDrive\Documents\GitHub\C64-Projects\kickass_examples\10.Koala Import\KoalaShower.asm 26:4) Error: Missing start token
+  (C:\Users\todd\OneDrive\Documents\GitHub\C64-Projects\kickass_examples\10.Koala Import\KoalaShower.asm 23:14) Error: Missing end token
+  (C:\Users\todd\OneDrive\Documents\GitHub\C64-Projects\kickass_examples\10.Koala Import\KoalaShower.asm 23:9) Error: Directive missing body
+
+loop1:  .for (var i=0// i<4// i++) {
+    lda colorRam+i*$100,x
+    sta $d800+i*$100,x
+   }
+   ^
+
+Error: Missing start token
+at line 26, column 4 in KoalaShower.asm
+
+
