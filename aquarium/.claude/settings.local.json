@@ -1,0 +1,13 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(find:*)",
+      "Bash(java:*)",
+      "Bash(mkdir:*)",
+      "Bash(apt list:*)",
+      "Bash(sudo apt:*)",
+      "Bash(ls:*)"
+    ],
+    "deny": []
+  }
+}

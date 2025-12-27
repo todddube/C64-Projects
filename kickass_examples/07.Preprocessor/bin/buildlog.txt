@@ -1,0 +1,18 @@
+Output dir: C:\Users\todd\OneDrive\Documents\GitHub\C64-Projects\kickass_examples\07.Preprocessor\bin
+parsing
+Got 4 errors and 0 warnings while executing:
+  (C:\Users\todd\OneDrive\Documents\GitHub\C64-Projects\kickass_examples\07.Preprocessor\Preprocessor.asm 78:35) Error: Missing end token
+  (C:\Users\todd\OneDrive\Documents\GitHub\C64-Projects\kickass_examples\07.Preprocessor\Preprocessor.asm 77:36) Error: Missing end token
+  (C:\Users\todd\OneDrive\Documents\GitHub\C64-Projects\kickass_examples\07.Preprocessor\Preprocessor.asm 21:11) Error: Unknown symbol 'irq1'
+  (C:\Users\todd\OneDrive\Documents\GitHub\C64-Projects\kickass_examples\07.Preprocessor\Preprocessor.asm 23:11) Error: Unknown symbol 'irq1'
+
+
+
+ .pseudocommand irqEnd line : addr {
+    .if (line.getType()!=AT_NONE) {lda line// sta $d012// } 
+                                  ^
+
+Error: Missing end token
+at line 78, column 35 in Preprocessor.asm
+
+

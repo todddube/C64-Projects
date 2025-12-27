@@ -1,0 +1,88 @@
+<C64debugger version="1.0">
+   <Sources values="INDEX,FILE">
+      0,C:\Users\todd\OneDrive\Documents\GitHub\C64-Projects\mystuff\scroller\scroller.asm
+      1,KickAss.jar:/include/autoinclude.asm
+   </Sources>
+
+   <Segment name="Default" dest="" values="START,END,FILE_IDX,LINE1,COL1,LINE2,COL2">
+      <Block name="Basic Upstart">
+         $0801,$0802,1,38,2,38,6
+         $0803,$0804,1,39,5,39,9
+         $0805,$0805,1,40,5,40,9
+         $0806,$0809,1,41,2,41,6
+         $080a,$080a,1,42,2,42,6
+         $080b,$080c,1,44,5,44,9
+      </Block>
+      <Block name="Main Program">
+         $0c00,$0c00,0,8,5,8,7
+         $0c01,$0c02,0,9,5,9,7
+         $0c03,$0c05,0,10,5,10,7
+         $0c06,$0c08,0,11,5,11,7
+         $0c09,$0c0a,0,13,5,13,7
+         $0c0b,$0c0c,0,14,5,14,7
+         $0c0d,$0c0e,0,16,5,16,7
+         $0c0f,$0c11,0,17,5,17,7
+         $0c12,$0c13,0,18,5,18,7
+         $0c14,$0c16,0,19,5,19,7
+         $0c17,$0c18,0,22,5,22,7
+         $0c19,$0c1a,0,23,5,23,7
+         $0c1b,$0c1d,0,25,5,25,7
+         $0c1e,$0c20,0,26,5,26,7
+         $0c21,$0c23,0,27,5,27,7
+         $0c24,$0c26,0,28,5,28,7
+         $0c27,$0c27,0,29,5,29,7
+         $0c28,$0c29,0,30,5,30,7
+         $0c2a,$0c2c,0,33,5,33,7
+         $0c2d,$0c2d,0,34,5,34,7
+         $0c2e,$0c2f,0,35,5,35,7
+         $0c30,$0c31,0,36,5,36,7
+         $0c32,$0c34,0,37,5,37,7
+         $0c35,$0c37,0,38,5,38,7
+         $0c38,$0c39,0,40,5,40,7
+         $0c3a,$0c3b,0,43,5,43,7
+         $0c3c,$0c3e,0,45,5,45,7
+         $0c3f,$0c41,0,46,5,46,7
+         $0c42,$0c42,0,47,5,47,7
+         $0c43,$0c44,0,48,5,48,7
+         $0c45,$0c46,0,49,5,49,7
+         $0c47,$0c49,0,52,5,52,7
+         $0c4a,$0c4c,0,53,5,53,7
+         $0c4d,$0c4e,0,54,5,54,7
+         $0c4f,$0c50,0,55,5,55,7
+         $0c51,$0c53,0,56,5,56,7
+         $0c54,$0c56,0,57,5,57,7
+         $0c57,$0c59,0,59,5,59,7
+         $0c5a,$0c5c,0,60,5,60,7
+         $0c5d,$0c5e,0,64,5,64,7
+         $0c5f,$0c61,0,66,5,66,7
+         $0c62,$0c63,0,67,5,67,7
+         $0c64,$0c66,0,68,5,68,7
+         $0c67,$0c67,0,70,17,70,21
+         $0c68,$0c68,0,71,16,71,20
+         $0c69,$0cac,0,72,16,72,20
+         $0cad,$0cad,0,73,16,73,20
+      </Block>
+   </Segment>
+
+   <Labels values="SEGMENT,ADDRESS,NAME,START,END,FILE_IDX,LINE1,COL1,LINE2,COL2">
+      Default,$080b,upstartEnd,1,43,1,43,11
+      Default,$0c00,start,0,7,1,7,6
+      Default,$0c17,init_screen,0,21,1,21,12
+      Default,$0c1b,clear,0,24,1,24,6
+      Default,$0c2a,main_loop,0,32,1,32,10
+      Default,$0c3c,shift_loop,0,44,1,44,11
+      Default,$0c57,not_end,0,58,1,58,8
+      Default,$0c5d,skip_char,0,62,1,62,10
+      Default,$0c5f,wait_raster,0,65,1,65,12
+      Default,$0c67,scroll_counter,0,70,1,70,15
+      Default,$0c68,text_pos,0,71,1,71,9
+      Default,$0c69,scroll_text,0,72,1,72,12
+   </Labels>
+
+   <Breakpoints values="SEGMENT,ADDRESS,ARGUMENT">
+   </Breakpoints>
+
+   <Watchpoints values="SEGMENT,ADDRESS1,ADDRESS2,ARGUMENT">
+   </Watchpoints>
+
+</C64debugger>
