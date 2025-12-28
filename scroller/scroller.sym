@@ -1,6 +1,6 @@
 .label enemy_x_tmp=$54
 .label CIA1_SDR=$dc0c
-.label row_lo_color=$b45
+.label row_lo_color=$d35
 .label SID_V1_AD=$d405
 .label enemy_spawn_tmr=$51
 .label VIC_CTRL1_YSCROLL=$7
@@ -27,7 +27,7 @@
 .label music_ptr_hi=$b4
 .label IEVAL=$30a
 .label return_value=$ee
-.label scroll_text=$bd7
+.label scroll_text=$def
 .label KEYBUF=$277
 .label VIC_SPR_PRIO=$d01b
 .label JOY_DOWN_MASK=$fd
@@ -56,7 +56,7 @@
 .label music_playing=$b0
 .label SID_V3_PW_HI=$d411
 .label VIC_CTRL2_XSCROLL=$7
-.label UpdateScroller=$91e
+.label UpdateScroller=$96e
 .label SCREEN_SIZE=$3e8
 .label temp4=$ea
 .label VIC_SPR7_X=$d00e
@@ -65,7 +65,7 @@
 .label CIA_ICR_CLR=$0
 .label CIA2_TOD_10TH=$dd08
 .label coll_x2=$5c
-.label STAR_AREA_END=$16
+.label STAR_AREA_END=$12
 .label VIC_SPR_COLL=$d01e
 .label coll_x1=$5a
 .label CIA_CRA_SPMODE=$40
@@ -130,7 +130,7 @@
 .label SID_POT_X=$d419
 .label CIA1_TOD_HR=$dc0b
 .label joy2_state=$d4
-.label raster_colors=$9ea
+.label raster_colors=$ac2
 .label PETSCII_RETURN=$d
 .label VIC_MEMORY=$d018
 .label player_state=$37
@@ -151,7 +151,7 @@
 .label JMPER=$54
 .label irq_temp3=$f2
 .label text_ptr=$2
-.label bounce_table=$a13
+.label bounce_table=$aeb
 .label irq_temp4=$f3
 .label QTEFLAG=$8
 .label MEMUSS=$c3
@@ -181,7 +181,7 @@
 .label RESHO=$26
 .label COLOR_LIGHT_GREY=$f
 .label sprite_ptr=$2a
-.label star_chars=$9fa
+.label star_chars=$ad2
 .label ARGSIG=$6a
 .label player_y_frac=$34
 .label flash_color=$a1
@@ -211,7 +211,7 @@
 .label zp_free_1=$2
 .label COLOR_ORANGE=$8
 .label MSGFLG=$9d
-.label row_hi=$b2c
+.label row_hi=$d1c
 .label mux_count=$90
 .label CIA2_TOD_SEC=$dd09
 .label score_lo=$70
@@ -233,6 +233,7 @@
 .label LA=$b8
 .label player_vars_end=$4f
 .label JOY_LEFT_MASK=$fb
+.label temp_x=$a26
 .label LAT=$259
 .label SARTEFLAG=$30c
 .label hi_score_mid=$74
@@ -246,6 +247,7 @@
 .label SPRITE_PTRS_DEFAULT=$7f8
 .label COLOR_LIGHT_GREEN=$d
 .label voice3_ptr_lo=$bf
+.label text_buffer=$dc7
 .label SID_V1_PW_LO=$d402
 .label SID_PULSE=$40
 .label STATUS=$90
@@ -255,6 +257,7 @@
 .label coll_y2=$5d
 .label sfx_ptr_lo=$c3
 .label coll_y1=$5b
+.label wave_phase=$eb
 .label XSESSION=$97
 .label STAR_AREA_START=$3
 .label enemy_count=$50
@@ -292,6 +295,8 @@
 .label COLOR_PURPLE=$4
 .label COLOR_GREY=$c
 .label SID_FILTER_CTRL=$d417
+.label wave_row_lo=$ceb
+.label wave_color_lo=$cf7
 .label ICHKIN=$31e
 .label CPU_CASSETTE_WR=$8
 .label BLNON=$cf
@@ -301,7 +306,7 @@
 .label SID_VOICE3_OFF=$80
 .label COLOR_BROWN=$9
 .label BASIC_END=$9fff
-.label DoRasterBars=$859
+.label DoRasterBars=$89a
 .label player_x_hi=$31
 .label score_mid=$71
 .label VIC_BORDER=$d020
@@ -315,7 +320,7 @@
 .label scroll_y_fine=$97
 .label color_ptr=$28
 .label math_op1_lo=$e0
-.label row_hi_color=$b5e
+.label row_hi_color=$d4e
 .label BASIC_ROM_END=$bfff
 .label dest_ptr_hi=$2f
 .label COLOR_WHITE=$1
@@ -336,7 +341,7 @@
 .label SID_RING=$4
 .label SC_A=$1
 .label ARG=$69
-.label UpdateStarfield=$95e
+.label UpdateStarfield=$a27
 .label VIC_SPR0_Y=$d001
 .label IOPEN=$31a
 .label CPU_RAM_ONLY=$30
@@ -355,15 +360,19 @@
 .label C3PO=$94
 .label CIA2_PRB=$dd01
 .label TANSGN=$13
+.label wave_table=$beb
 .label sound_end=$cf
 .label sfx_priority=$c1
 .label CIA2_PRA=$dd00
 .label CIA_CRA_PBON=$2
 .label COLOR_LIGHT_BLUE=$e
 .label CIA2_ICR=$dd0d
+.label wave_row_hi=$cf1
 .label ROBUF=$f9
 .label flash_timer=$a0
 .label VIC_IRQ_STATUS=$d019
+.label WAVE_TOP_ROW=$13
+.label wave_color_hi=$cfd
 .label LSTX=$c5
 .label music_timer=$b2
 .label STAL=$c1
@@ -377,7 +386,7 @@
 .label SID_V2_FREQ_HI=$d408
 .label CIA_ICR_FLAG=$10
 .label DTEFNO=$99
-.label InitStars=$8a0
+.label InitStars=$8e1
 .label data_ptr=$2c
 .label VIC_CTRL1=$d011
 .label BTEFLAG=$a5
@@ -408,7 +417,7 @@
 .label VIC_CTRL1_RSEL=$8
 .label VIC_SPR_HI_X=$d010
 .label ptr1_hi=$23
-.label rainbow_colors=$a03
+.label rainbow_colors=$adb
 .label VIC_SPR2_Y=$d005
 .label INSRT=$d8
 .label VIC_SPR2_X=$d004
@@ -418,21 +427,22 @@
 .label RSBAU=$2a3
 .label score_hi=$72
 .label ADRAY2=$5
+.label DrawWavyText=$9b5
 .label ADRAY1=$3
 .label BASIC_START=$801
 .label SYESSION=$96
 .label D2IRQ=$2a0
 .label DTEFLAG=$53
-.label UpdateTextColors=$9cf
+.label UpdateTextColors=$a98
 .label IBSOUT=$326
 .label SID_V1_SR=$d406
 .label STACK=$100
 .label JOY_LEFT=$4
 .label CIA1_DDRA=$dc02
-.label row_lo=$b13
+.label row_lo=$d03
 .label CIA1_DDRB=$dc03
 .label player_lives=$3a
-.label star_char=$bbf
+.label star_char=$daf
 .label VIC_BG_COLOR1=$d022
 .label player_dx=$35
 .label VIC_BG_COLOR0=$d021
@@ -471,17 +481,16 @@
 .label player_x_frac=$33
 .label PTR2=$9f
 .label PETSCII_DOWN=$11
-.label star_y=$b8f
+.label star_y=$d7f
 .label CAS1=$c0
 .label PTR1=$9e
 .label CIA2_CRB=$dd0f
-.label star_x=$b77
+.label star_x=$d67
 .label VIC_SPR2_COLOR=$d029
 .label CIA2_CRA=$dd0e
 .label char_y=$9e
 .label misc_flags=$ed
 .label CPU_HIRAM=$2
-.label SCROLL_LINE=$18
 .label CRSW=$d0
 .label FLAG_LEVEL_DONE=$2
 .label COLOR_BLACK=$0
@@ -494,7 +503,7 @@
 .label OPMASK=$4d
 .label CIA1_TIMER_B_LO=$dc06
 .label char_x=$9d
-.label star_colors=$9fe
+.label star_colors=$ad6
 .label SC_SPACE=$20
 .label VIC_CTRL1_DEN=$10
 .label input_end=$df
@@ -520,7 +529,7 @@
 .label CIA_CRA_ONESHOT=$8
 .label ICLOSE=$31c
 .label SID_V3_AD=$d413
-.label MainLoop=$841
+.label MainLoop=$879
 .label GDBLN=$ce
 .label CIA2_TOD_HR=$dd0b
 .label TIME_MID=$a1
@@ -532,7 +541,7 @@
 .label zp_user_1=$fb
 .label STREND=$31
 .label SID_FILTER_HI=$d416
-.label star_speed=$ba7
+.label star_speed=$d97
 .label player2_anim=$44
 .label MEMSTR=$281
 .label GDCOL=$287
@@ -564,6 +573,7 @@
 .label ZP_USER4=$fe
 .label player_invuln=$3b
 .label game_state_end=$8f
+.label WAVE_MASK=$5
 .label SID_FILTER_BP=$20
 .label VIC_BANK_MASK=$3
 .label TEMPPT=$16
@@ -580,6 +590,7 @@
 .label INPUT_BUFFER=$200
 .label VIC_SPR4_COLOR=$d02b
 .label SID_V3_CTRL=$d412
+.label IrqHandler=$891
 .label VIC_SPR_MCOLOR1=$d026
 .label FACSGN=$62
 .label VIC_SPR6_Y=$d00d
@@ -600,8 +611,8 @@
 .label SAT=$26d
 .label TIME_HI=$a0
 .label CIA2_TIMER_A_HI=$dd05
-.label ClearScreenRam=$87c
-.label DrawAllStars=$8d8
+.label ClearScreenRam=$8bd
+.label DrawAllStars=$919
 .label FNLEN=$b7
 .label ICRNCH=$304
 .label game_state=$7a
@@ -616,7 +627,7 @@
 .label DEFPNT=$4e
 .label sfx_channel=$c5
 .label BITTS=$b4
-.label InitTextColors=$90e
+.label InitTextColors=$94f
 .label USER=$f3
 .label VIC_SPR3_COLOR=$d02a
 .label FACSIG=$5e

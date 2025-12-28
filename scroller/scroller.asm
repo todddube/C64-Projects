@@ -15,6 +15,11 @@
 #import "../../C64-Standards/include/zeropage.asm"
 
 //------------------------------------------------------------------------------
+// Load SID music file
+//------------------------------------------------------------------------------
+.var music = LoadSid("Nightshift.sid")
+
+//------------------------------------------------------------------------------
 // BASIC Loader - Using KickAssembler built-in
 //------------------------------------------------------------------------------
 BasicUpstart2(Start)
@@ -23,10 +28,17 @@ BasicUpstart2(Start)
 // CONSTANTS
 //==============================================================================
 
-.label SCROLL_LINE      = 24          // Screen row for scroller (bottom)
-.label STAR_AREA_START  = 3           // Row where stars begin
-.label STAR_AREA_END    = 22          // Row where stars end
-.label NUM_STARS        = 24          // Number of stars
+//------------------------------------------------------------------------------
+// WAVE CONFIGURATION - Change WAVE_ROWS to adjust wave amplitude (2-8)
+//------------------------------------------------------------------------------
+.const WAVE_ROWS        = 6           // Number of rows for wave effect (2-8)
+                                      // 2 = subtle wave, 8 = dramatic wave
+
+.label WAVE_TOP_ROW     = 25 - WAVE_ROWS  // Top row of wave area (calculated)
+.label WAVE_MASK        = WAVE_ROWS - 1   // Mask for row offset (must be power of 2 - 1)
+.label STAR_AREA_START  = 3               // Row where stars begin
+.label STAR_AREA_END    = WAVE_TOP_ROW - 1  // Row where stars end (above wave)
+.label NUM_STARS        = 24              // Number of stars
 
 //==============================================================================
 // ZERO PAGE VARIABLES
@@ -38,6 +50,7 @@ BasicUpstart2(Start)
 .label color_offset     = temp2       // $E8 - Rainbow color offset
 .label raster_color     = temp3       // $E9 - Raster bar color index
 .label bounce_index     = temp4       // $EA - Bounce sine table index
+.label wave_phase       = loop_i      // $EB - Wave animation phase
 
 //==============================================================================
 // MAIN CODE
@@ -73,6 +86,7 @@ Start:
     sta color_offset
     sta raster_color
     sta bounce_index
+    sta wave_phase
 
     // Clear screen
     jsr ClearScreenRam
@@ -82,6 +96,34 @@ Start:
 
     // Initialize scroll text colors
     jsr InitTextColors
+
+    // Initialize SID music
+    lda #music.startSong - 1
+    ldx #0
+    ldy #0
+    jsr music.init
+
+    // Set up raster IRQ for music playback
+    lda #<IrqHandler
+    sta $0314
+    lda #>IrqHandler
+    sta $0315
+
+    lda #$80                        // Raster line for IRQ
+    sta VIC_RASTER
+    lda VIC_CTRL1
+    and #$7F                        // Clear raster bit 8
+    sta VIC_CTRL1
+
+    lda #$7F                        // Disable CIA interrupts
+    sta $DC0D
+    sta $DD0D
+    lda $DC0D                       // Acknowledge pending
+    lda $DD0D
+
+    lda #$01                        // Enable raster IRQ
+    sta VIC_IRQ_ENABLE
+    asl VIC_IRQ_STATUS              // Acknowledge any pending
 
     cli
 
@@ -106,6 +148,14 @@ MainLoop:
     inc frame_count
 
     jmp MainLoop
+
+//------------------------------------------------------------------------------
+// IrqHandler: Raster interrupt for SID music playback
+//------------------------------------------------------------------------------
+IrqHandler:
+    asl VIC_IRQ_STATUS              // Acknowledge raster IRQ
+    jsr music.play                  // Play music
+    jmp $EA81                       // Return from interrupt
 
 //==============================================================================
 // SUBROUTINES
@@ -249,7 +299,7 @@ DrawAllStars:
     rts
 
 //------------------------------------------------------------------------------
-// InitTextColors: Initialize rainbow colors for scroll text line
+// InitTextColors: Initialize rainbow colors for all wave rows
 //------------------------------------------------------------------------------
 InitTextColors:
     ldx #39
@@ -258,13 +308,16 @@ InitTextColors:
     and #$0F
     tay
     lda rainbow_colors, y
-    sta COLOR_RAM + (SCROLL_LINE * 40), x
+    // Initialize colors for all wave rows (generated based on WAVE_ROWS)
+    .for (var row = 0; row < WAVE_ROWS; row++) {
+        sta COLOR_RAM + ((WAVE_TOP_ROW + row) * 40), x
+    }
     dex
     bpl !initColorLoop-
     rts
 
 //------------------------------------------------------------------------------
-// UpdateScroller: Handle horizontal scrolling text with bounce effect
+// UpdateScroller: Handle horizontal scrolling text with wave + bounce effect
 //------------------------------------------------------------------------------
 UpdateScroller:
     // Update bounce effect - get Y offset from sine table
@@ -278,6 +331,10 @@ UpdateScroller:
     ora #$18                        // DEN + RSEL bits
     sta VIC_CTRL1
 
+    // Update wave phase (controls wave animation speed)
+    inc wave_phase
+    inc wave_phase                  // Wave moves faster than scroll
+
     // Decrease scroll position
     dec scroll_x
     lda scroll_x
@@ -289,16 +346,16 @@ UpdateScroller:
     // Check if we need to shift characters
     lda scroll_x
     cmp #$07
-    bne !scrollerDone+
+    bne !doWave+
 
-    // Shift all characters left
+    // Shift the text buffer left
     ldx #$00
-!shiftChars:
-    lda SCREEN_RAM + (SCROLL_LINE * 40) + 1, x
-    sta SCREEN_RAM + (SCROLL_LINE * 40), x
+!shiftBuffer:
+    lda text_buffer + 1, x
+    sta text_buffer, x
     inx
     cpx #39
-    bne !shiftChars-
+    bne !shiftBuffer-
 
     // Get next character from text
     ldx text_ptr
@@ -309,11 +366,94 @@ UpdateScroller:
     stx text_ptr
     lda scroll_text
 !storeChar:
-    sta SCREEN_RAM + (SCROLL_LINE * 40) + 39
+    sta text_buffer + 39
     inc text_ptr
 
-!scrollerDone:
+!doWave:
+    // Now draw the wavy text from buffer to screen
+    jsr DrawWavyText
     rts
+
+//------------------------------------------------------------------------------
+// DrawWavyText: Draw text buffer with sine wave vertical displacement
+//------------------------------------------------------------------------------
+DrawWavyText:
+    // First clear all wave rows (generated based on WAVE_ROWS)
+    lda #SC_SPACE
+    ldx #39
+!clearWaveRows:
+    .for (var row = 0; row < WAVE_ROWS; row++) {
+        sta SCREEN_RAM + ((WAVE_TOP_ROW + row) * 40), x
+    }
+    dex
+    bpl !clearWaveRows-
+
+    // Draw each character at its wave position
+    ldx #39                         // Column counter (right to left)
+!drawWaveLoop:
+    // Calculate wave table index for this column
+    // index = wave_phase + (column * 4) for wave frequency
+    txa
+    asl
+    asl                             // x * 4 for wave frequency
+    clc
+    adc wave_phase
+    tay                             // Y = index into wave table
+
+    // Get row offset from wave table
+    lda wave_table, y
+    and #WAVE_MASK                  // Ensure 0 to WAVE_ROWS-1 range
+
+    // Calculate screen address for this row
+    tay                             // Y = row offset (0-3)
+    lda wave_row_lo, y
+    sta ptr1
+    lda wave_row_hi, y
+    sta ptr1_hi
+
+    // Also set up color RAM
+    lda wave_color_lo, y
+    sta ptr2
+    lda wave_color_hi, y
+    sta ptr2_hi
+
+    // Get character from buffer and draw it
+    lda text_buffer, x
+    ldy #0
+    // Use X as offset since we're drawing column X
+    stx temp_x
+    txa
+    tay
+    lda text_buffer, x
+    sta (ptr1), y
+
+    // Set rainbow color for this position
+    txa
+    clc
+    adc color_offset
+    and #$0F
+    tay
+    lda rainbow_colors, y
+    ldx temp_x
+    tay
+    // Y now has the column, need to reload color
+    lda temp_x
+    clc
+    adc color_offset
+    and #$0F
+    tay
+    lda rainbow_colors, y
+    ldy temp_x
+    sta (ptr2), y
+
+    ldx temp_x
+    dex
+    bpl !drawWaveLoop-
+
+    rts
+
+// Temp storage for X during wave drawing
+temp_x: .byte 0
 
 //------------------------------------------------------------------------------
 // UpdateStarfield: Parallax scrolling star effect
@@ -390,7 +530,7 @@ UpdateStarfield:
     rts
 
 //------------------------------------------------------------------------------
-// UpdateTextColors: Rainbow color cycling effect
+// UpdateTextColors: Rainbow color cycling effect for all wave rows
 //------------------------------------------------------------------------------
 UpdateTextColors:
     // Only update every 4 frames
@@ -408,7 +548,10 @@ UpdateTextColors:
     and #$0F
     tay
     lda rainbow_colors, y
-    sta COLOR_RAM + (SCROLL_LINE * 40), x
+    // Update colors for all wave rows (generated based on WAVE_ROWS)
+    .for (var row = 0; row < WAVE_ROWS; row++) {
+        sta COLOR_RAM + ((WAVE_TOP_ROW + row) * 40), x
+    }
     dex
     bpl !colorLoop-
 
@@ -452,6 +595,33 @@ rainbow_colors:
 // Creates a gentle up/down bouncing motion
 bounce_table:
     .fill 256, 3 + round(2.5 * sin(toRadians(i * 360 / 64)))
+
+// Wave sine table - 256 entries, values 0 to WAVE_ROWS-1 for row offset
+// Creates the undulating wave effect for text
+wave_table:
+    .fill 256, round((WAVE_ROWS-1)/2.0 + (WAVE_ROWS-1)/2.0 * sin(toRadians(i * 360 / 32)))
+
+// Wave row screen address tables (generated for WAVE_ROWS rows)
+wave_row_lo:
+    .for (var row = 0; row < WAVE_ROWS; row++) {
+        .byte <(SCREEN_RAM + ((WAVE_TOP_ROW + row) * 40))
+    }
+
+wave_row_hi:
+    .for (var row = 0; row < WAVE_ROWS; row++) {
+        .byte >(SCREEN_RAM + ((WAVE_TOP_ROW + row) * 40))
+    }
+
+// Wave row color RAM address tables (generated for WAVE_ROWS rows)
+wave_color_lo:
+    .for (var row = 0; row < WAVE_ROWS; row++) {
+        .byte <(COLOR_RAM + ((WAVE_TOP_ROW + row) * 40))
+    }
+
+wave_color_hi:
+    .for (var row = 0; row < WAVE_ROWS; row++) {
+        .byte >(COLOR_RAM + ((WAVE_TOP_ROW + row) * 40))
+    }
 
 // Screen row address tables (low bytes)
 row_lo:
@@ -514,6 +684,10 @@ star_speed:
 star_char:
     .fill NUM_STARS, 0
 
+// Text buffer for wavy scroller (40 characters)
+text_buffer:
+    .fill 40, SC_SPACE
+
 //==============================================================================
 // SCROLL TEXT
 //==============================================================================
@@ -521,10 +695,30 @@ star_char:
 scroll_text:
     // Using screen codes (not PETSCII) for direct screen RAM output
     .text "    welcome to the enhanced scroller demo!   "
-    .text "featuring: parallax starfield ... rainbow color cycling text ... "
-    .text "raster bar effects ... all classic c64 demo tricks!   "
+    .text "featuring: parallax starfield ... wavy bouncy text ... "
+    .text "rainbow color cycling ... raster bar effects ... "
+    .text "and music by "
+    .text music.author
+    .text " ... all classic c64 demo tricks!   "
     .text "greetings to all c64 fans around the world!   "
     .text "this demo was created with kickassembler.   "
     .text "now using c64-standards library for clean code!   "
     .text "                    "
     .byte $00
+
+//==============================================================================
+// SID MUSIC DATA
+//==============================================================================
+
+* = music.location "Music"
+.fill music.size, music.getData(i)
+
+// Print music info during assembly
+.print ""
+.print "SID Data"
+.print "--------"
+.print "location=$"+toHexString(music.location)
+.print "init=$"+toHexString(music.init)
+.print "play=$"+toHexString(music.play)
+.print "name="+music.name
+.print "author="+music.author

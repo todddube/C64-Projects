@@ -1,6 +1,6 @@
 al C:54 .enemy_x_tmp
 al C:dc0c .CIA1_SDR
-al C:b45 .row_lo_color
+al C:d35 .row_lo_color
 al C:d405 .SID_V1_AD
 al C:51 .enemy_spawn_tmr
 al C:7 .VIC_CTRL1_YSCROLL
@@ -27,7 +27,7 @@ al C:80 .CIA_CRA_TODIN
 al C:b4 .music_ptr_hi
 al C:30a .IEVAL
 al C:ee .return_value
-al C:bd7 .scroll_text
+al C:def .scroll_text
 al C:277 .KEYBUF
 al C:d01b .VIC_SPR_PRIO
 al C:fd .JOY_DOWN_MASK
@@ -56,7 +56,7 @@ al C:d02d .VIC_SPR6_COLOR
 al C:b0 .music_playing
 al C:d411 .SID_V3_PW_HI
 al C:7 .VIC_CTRL2_XSCROLL
-al C:91e .UpdateScroller
+al C:96e .UpdateScroller
 al C:3e8 .SCREEN_SIZE
 al C:ea .temp4
 al C:d00e .VIC_SPR7_X
@@ -65,7 +65,7 @@ al C:d5 .joy2_prev
 al C:0 .CIA_ICR_CLR
 al C:dd08 .CIA2_TOD_10TH
 al C:5c .coll_x2
-al C:16 .STAR_AREA_END
+al C:12 .STAR_AREA_END
 al C:d01e .VIC_SPR_COLL
 al C:5a .coll_x1
 al C:40 .CIA_CRA_SPMODE
@@ -130,7 +130,7 @@ al C:c9 .LXSP
 al C:d419 .SID_POT_X
 al C:dc0b .CIA1_TOD_HR
 al C:d4 .joy2_state
-al C:9ea .raster_colors
+al C:ac2 .raster_colors
 al C:d .PETSCII_RETURN
 al C:d018 .VIC_MEMORY
 al C:37 .player_state
@@ -151,7 +151,7 @@ al C:5f .coll_h
 al C:54 .JMPER
 al C:f2 .irq_temp3
 al C:2 .text_ptr
-al C:a13 .bounce_table
+al C:aeb .bounce_table
 al C:f3 .irq_temp4
 al C:8 .QTEFLAG
 al C:c3 .MEMUSS
@@ -181,7 +181,7 @@ al C:324 .IBASIN
 al C:26 .RESHO
 al C:f .COLOR_LIGHT_GREY
 al C:2a .sprite_ptr
-al C:9fa .star_chars
+al C:ad2 .star_chars
 al C:6a .ARGSIG
 al C:34 .player_y_frac
 al C:a1 .flash_color
@@ -212,7 +212,7 @@ al C:8 .CIA_ICR_SDR
 al C:2 .zp_free_1
 al C:8 .COLOR_ORANGE
 al C:9d .MSGFLG
-al C:b2c .row_hi
+al C:d1c .row_hi
 al C:90 .mux_count
 al C:dd09 .CIA2_TOD_SEC
 al C:70 .score_lo
@@ -234,6 +234,7 @@ al C:2d .VARTAB
 al C:b8 .LA
 al C:4f .player_vars_end
 al C:fb .JOY_LEFT_MASK
+al C:a26 .temp_x
 al C:259 .LAT
 al C:30c .SARTEFLAG
 al C:74 .hi_score_mid
@@ -247,6 +248,7 @@ al C:a .COLOR_LIGHT_RED
 al C:7f8 .SPRITE_PTRS_DEFAULT
 al C:d .COLOR_LIGHT_GREEN
 al C:bf .voice3_ptr_lo
+al C:dc7 .text_buffer
 al C:d402 .SID_V1_PW_LO
 al C:40 .SID_PULSE
 al C:90 .STATUS
@@ -256,6 +258,7 @@ al C:28 .SCREEN_COLS
 al C:5d .coll_y2
 al C:c3 .sfx_ptr_lo
 al C:5b .coll_y1
+al C:eb .wave_phase
 al C:97 .XSESSION
 al C:3 .STAR_AREA_START
 al C:50 .enemy_count
@@ -293,6 +296,8 @@ al C:318 .NMINV
 al C:4 .COLOR_PURPLE
 al C:c .COLOR_GREY
 al C:d417 .SID_FILTER_CTRL
+al C:ceb .wave_row_lo
+al C:cf7 .wave_color_lo
 al C:31e .ICHKIN
 al C:8 .CPU_CASSETTE_WR
 al C:cf .BLNON
@@ -302,7 +307,7 @@ al C:d410 .SID_V3_PW_LO
 al C:80 .SID_VOICE3_OFF
 al C:9 .COLOR_BROWN
 al C:9fff .BASIC_END
-al C:859 .DoRasterBars
+al C:89a .DoRasterBars
 al C:31 .player_x_hi
 al C:71 .score_mid
 al C:d020 .VIC_BORDER
@@ -316,7 +321,7 @@ al C:e7 .star_phase
 al C:97 .scroll_y_fine
 al C:28 .color_ptr
 al C:e0 .math_op1_lo
-al C:b5e .row_hi_color
+al C:d4e .row_hi_color
 al C:bfff .BASIC_ROM_END
 al C:2f .dest_ptr_hi
 al C:1 .COLOR_WHITE
@@ -337,7 +342,7 @@ al C:b8 .voice1_ptr_hi
 al C:4 .SID_RING
 al C:1 .SC_A
 al C:69 .ARG
-al C:95e .UpdateStarfield
+al C:a27 .UpdateStarfield
 al C:d001 .VIC_SPR0_Y
 al C:31a .IOPEN
 al C:30 .CPU_RAM_ONLY
@@ -356,15 +361,19 @@ al C:dd04 .CIA2_TIMER_A_LO
 al C:94 .C3PO
 al C:dd01 .CIA2_PRB
 al C:13 .TANSGN
+al C:beb .wave_table
 al C:cf .sound_end
 al C:c1 .sfx_priority
 al C:dd00 .CIA2_PRA
 al C:2 .CIA_CRA_PBON
 al C:e .COLOR_LIGHT_BLUE
 al C:dd0d .CIA2_ICR
+al C:cf1 .wave_row_hi
 al C:f9 .ROBUF
 al C:a0 .flash_timer
 al C:d019 .VIC_IRQ_STATUS
+al C:13 .WAVE_TOP_ROW
+al C:cfd .wave_color_hi
 al C:c5 .LSTX
 al C:b2 .music_timer
 al C:c1 .STAL
@@ -378,7 +387,7 @@ al C:80 .VIC_IRQ_ANY
 al C:d408 .SID_V2_FREQ_HI
 al C:10 .CIA_ICR_FLAG
 al C:99 .DTEFNO
-al C:8a0 .InitStars
+al C:8e1 .InitStars
 al C:2c .data_ptr
 al C:d011 .VIC_CTRL1
 al C:a5 .BTEFLAG
@@ -409,7 +418,7 @@ al C:d3 .joy1_released
 al C:8 .VIC_CTRL1_RSEL
 al C:d010 .VIC_SPR_HI_X
 al C:23 .ptr1_hi
-al C:a03 .rainbow_colors
+al C:adb .rainbow_colors
 al C:d005 .VIC_SPR2_Y
 al C:d8 .INSRT
 al C:d004 .VIC_SPR2_X
@@ -419,21 +428,22 @@ al C:29 .color_ptr_hi
 al C:2a3 .RSBAU
 al C:72 .score_hi
 al C:5 .ADRAY2
+al C:9b5 .DrawWavyText
 al C:3 .ADRAY1
 al C:801 .BASIC_START
 al C:96 .SYESSION
 al C:2a0 .D2IRQ
 al C:53 .DTEFLAG
-al C:9cf .UpdateTextColors
+al C:a98 .UpdateTextColors
 al C:326 .IBSOUT
 al C:d406 .SID_V1_SR
 al C:100 .STACK
 al C:4 .JOY_LEFT
 al C:dc02 .CIA1_DDRA
-al C:b13 .row_lo
+al C:d03 .row_lo
 al C:dc03 .CIA1_DDRB
 al C:3a .player_lives
-al C:bbf .star_char
+al C:daf .star_char
 al C:d022 .VIC_BG_COLOR1
 al C:35 .player_dx
 al C:d021 .VIC_BG_COLOR0
@@ -472,17 +482,16 @@ al C:d003 .VIC_SPR1_Y
 al C:33 .player_x_frac
 al C:9f .PTR2
 al C:11 .PETSCII_DOWN
-al C:b8f .star_y
+al C:d7f .star_y
 al C:c0 .CAS1
 al C:9e .PTR1
 al C:dd0f .CIA2_CRB
-al C:b77 .star_x
+al C:d67 .star_x
 al C:d029 .VIC_SPR2_COLOR
 al C:dd0e .CIA2_CRA
 al C:9e .char_y
 al C:ed .misc_flags
 al C:2 .CPU_HIRAM
-al C:18 .SCROLL_LINE
 al C:d0 .CRSW
 al C:2 .FLAG_LEVEL_DONE
 al C:0 .COLOR_BLACK
@@ -495,7 +504,7 @@ al C:2c0 .SPRITE_COLLISION
 al C:4d .OPMASK
 al C:dc06 .CIA1_TIMER_B_LO
 al C:9d .char_x
-al C:9fe .star_colors
+al C:ad6 .star_colors
 al C:20 .SC_SPACE
 al C:10 .VIC_CTRL1_DEN
 al C:df .input_end
@@ -521,7 +530,7 @@ al C:a .LOADFLG
 al C:8 .CIA_CRA_ONESHOT
 al C:31c .ICLOSE
 al C:d413 .SID_V3_AD
-al C:841 .MainLoop
+al C:879 .MainLoop
 al C:ce .GDBLN
 al C:dd0b .CIA2_TOD_HR
 al C:a1 .TIME_MID
@@ -533,7 +542,7 @@ al C:fc .zp_user_2
 al C:fb .zp_user_1
 al C:31 .STREND
 al C:d416 .SID_FILTER_HI
-al C:ba7 .star_speed
+al C:d97 .star_speed
 al C:44 .player2_anim
 al C:281 .MEMSTR
 al C:287 .GDCOL
@@ -565,6 +574,7 @@ al C:69 .ARGEXP
 al C:fe .ZP_USER4
 al C:3b .player_invuln
 al C:8f .game_state_end
+al C:5 .WAVE_MASK
 al C:20 .SID_FILTER_BP
 al C:3 .VIC_BANK_MASK
 al C:16 .TEMPPT
@@ -581,6 +591,7 @@ al C:e000 .KERNAL_ROM
 al C:200 .INPUT_BUFFER
 al C:d02b .VIC_SPR4_COLOR
 al C:d412 .SID_V3_CTRL
+al C:891 .IrqHandler
 al C:d026 .VIC_SPR_MCOLOR1
 al C:62 .FACSGN
 al C:d00d .VIC_SPR6_Y
@@ -601,8 +612,8 @@ al C:e9 .raster_color
 al C:26d .SAT
 al C:a0 .TIME_HI
 al C:dd05 .CIA2_TIMER_A_HI
-al C:87c .ClearScreenRam
-al C:8d8 .DrawAllStars
+al C:8bd .ClearScreenRam
+al C:919 .DrawAllStars
 al C:b7 .FNLEN
 al C:304 .ICRNCH
 al C:7a .game_state
@@ -617,7 +628,7 @@ al C:6f .CHRGET_PTR
 al C:4e .DEFPNT
 al C:c5 .sfx_channel
 al C:b4 .BITTS
-al C:90e .InitTextColors
+al C:94f .InitTextColors
 al C:f3 .USER
 al C:d02a .VIC_SPR3_COLOR
 al C:5e .FACSIG
