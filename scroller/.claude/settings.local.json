@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(findstr:*)",
+      "Bash(java:*)",
+      "Bash(dir \"c:\\\\Users\\\\todd\\\\OneDrive\\\\Documents\\\\GitHub\\\\C64-Projects\\\\scroller\\\\bin\")",
+      "Bash(dir:*)"
+    ]
+  }
+}

@@ -17,17 +17,17 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ### Local Development
 ```bash
-# Build any assembly file with KickAssembler
-java -jar C:\C64\KickAssembler\KickAss.jar filename.asm
+# Build any assembly file with KickAssembler (use quotes for paths with spaces)
+java -jar "C:\C64\KickAssembler\KickAss.jar" filename.asm
 
 # Build with specific output directory and filename
-java -jar C:\C64\KickAssembler\KickAss.jar main.asm -odir bin -o projectname.prg
+java -jar "C:\C64\KickAssembler\KickAss.jar" main.asm -odir bin -o projectname.prg
 
 # Build output will be in same directory or bin/ subdirectory
 # Generated files: .prg (program), .sym (symbols), .dbg (debug info)
 
 # Run in VICE emulator
-C:\C64\VICE\x64sc.exe program.prg
+"C:\C64\VICE\x64sc.exe" program.prg
 ```
 
 ### CI/CD Integration
@@ -47,9 +47,9 @@ C:\C64\VICE\x64sc.exe program.prg
 The codebase is organized into five main areas:
 
 1. **c64_lessons/**: Progressive tutorial projects from basic to advanced topics
-2. **kickass_examples/**: Advanced KickAssembler feature demonstrations  
+2. **kickass_examples/**: Advanced KickAssembler feature demonstrations
 3. **demos/**: Complete demo programs with visual effects
-4. **aquarium/**, **ballz/**, **scroller/**: Individual project directories
+4. **spritemove/**, **scroller/**: Individual project directories
 5. **bin/**: Global build output directory
 
 ### Standard Assembly Structure
@@ -204,6 +204,28 @@ lda (ptr),y
 - Color RAM: `$D800-$DBFF`
 - CIA1: `$DC00-$DCFF`
 - CIA2: `$DD00-$DDFF`
+
+## Common Build Errors
+
+### Branch Too Far
+When loops exceed 127 bytes, relative branches fail with:
+```
+Error: relative address is illegal (jump distance is too far: -131)
+```
+**Fix**: Replace `bne label` with `beq done` + `jmp label`:
+```assembly
+// Before (fails if loop > 127 bytes)
+    inx
+    cpx #$08
+    bne loop
+
+// After (works for any distance)
+    inx
+    cpx #$08
+    beq done
+    jmp loop
+done:
+```
 
 ## Project Conventions
 
