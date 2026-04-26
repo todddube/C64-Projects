@@ -4,31 +4,58 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Reference Documentation
 
-### C64 Tools Location: `C:\C64\`
+### C64 Tools Location (macOS)
 
-- **KickAssembler**: `C:\C64\KickAssembler\`
+- **KickAssembler v5.25**: `/Applications/KickAssembler/`
   - `KickAss.jar` - Assembler executable
   - `KickAssembler.pdf` - Official documentation manual
-- **VICE Emulator**: `C:\C64\VICE\` - C64 emulator for testing
-- Always follow KickAssembler syntax and directives as specified in the manual
+  - `Examples/` - Official KickAssembler example projects
+- **Java**: System default install (Java 26+, verified in PATH)
+- **Regenerator 2000**: `/Applications/regenerator/regenerator2000`
+  - Interactive 6502 TUI disassembler for Commodore 8-bit machines
+  - Full 6502 support including undocumented opcodes
+  - Supports: `.prg`, `.crt`, `.d64`, `.d71`, `.d81`, `.t64`, `.vsf`, `.bin`, `.raw`, `.regen2000proj`, `.dis65`
+  - Exports to KickAssembler (use `--assembler kick`), 64tass, ACME, ca65
+  - MCP server mode: `--mcp-server` (HTTP port 3000) or `--mcp-server-stdio`
+  - VICE debugger integration: `--vice localhost:6502`
+  - Docs: https://regenerator2000.readthedocs.io/
+- **VICE Emulator (arm64/GTK3)**: `/Applications/vice-arm64-gtk3/`
+  - CLI binary: `/Applications/vice-arm64-gtk3/bin/x64sc` — primary C64 emulator
+  - App bundle: `/Applications/vice-arm64-gtk3/x64sc.app`
+  - Other emulators: x128, x64dtv, xplus4, xpet, xvic
+- Always follow KickAssembler v5.25 syntax and directives as specified in the manual
 - Follow C64 6502 assembler standards and conventions
+
+### Build Alias (add to ~/.zshrc for convenience)
+```bash
+alias kickass='java -jar /Applications/KickAssembler/KickAss.jar'
+```
 
 ## Build Commands
 
-### Local Development
+### Local Development (macOS)
 ```bash
-# Build any assembly file with KickAssembler (use quotes for paths with spaces)
-java -jar "C:\C64\KickAssembler\KickAss.jar" filename.asm
+# Build any assembly file with KickAssembler
+java -jar /Applications/KickAssembler/KickAss.jar filename.asm
 
 # Build with specific output directory and filename
-java -jar "C:\C64\KickAssembler\KickAss.jar" main.asm -odir bin -o projectname.prg
+java -jar /Applications/KickAssembler/KickAss.jar main.asm -odir bin -o projectname.prg
 
 # Build output will be in same directory or bin/ subdirectory
 # Generated files: .prg (program), .sym (symbols), .dbg (debug info)
 
-# Run in VICE emulator
-"C:\C64\VICE\x64sc.exe" program.prg
+# Run in VICE emulator (macOS arm64)
+/Applications/vice-arm64-gtk3/bin/x64sc program.prg
+
+# Run with autostart (loads and runs immediately)
+/Applications/vice-arm64-gtk3/bin/x64sc -autostart program.prg
 ```
+
+### Custom Slash Commands (Claude Code agents)
+- `/build` — Builds the current project's main.asm with KickAssembler
+- `/build-all` — Builds all main.asm files in the repo
+- `/c64-new` — Scaffolds a new C64 project with standard structure
+- `/disassemble` — Disassembles a .prg (or other supported file) using Regenerator 2000
 
 ### CI/CD Integration
 - **GitHub Actions**: Builds all `main.asm` files in subdirectories on push/PR to main branch
@@ -40,6 +67,54 @@ java -jar "C:\C64\KickAssembler\KickAss.jar" main.asm -odir bin -o projectname.p
   - Deploys to `/Usb0/Dev/` directory on Ultimate II+ via FTP
   - Uses variable group `c64` for FTP credentials
 - Build logs are stored in `buildlog.txt` in each project's `bin/` directory
+
+## Disassembly Workflow
+
+### Regenerator 2000 — Interactive TUI Disassembler
+
+Binary: `/Applications/regenerator/regenerator2000`
+
+```bash
+# Open a PRG interactively in the TUI
+/Applications/regenerator/regenerator2000 program.prg
+
+# Export to KickAssembler .asm (headless, no TUI needed)
+/Applications/regenerator/regenerator2000 project.regen2000proj \
+  --headless --export_asm output.asm --assembler kick
+
+# Import VICE labels then export annotated assembly
+/Applications/regenerator/regenerator2000 program.prg \
+  --import_lbl program.sym --export_asm program_disasm.asm --assembler kick
+
+# Export labels only
+/Applications/regenerator/regenerator2000 program.prg \
+  --export_lbl labels.sym --assembler kick
+
+# Connect to running VICE instance for live debugging
+/Applications/vice-arm64-gtk3/bin/x64sc -binarymonitor program.prg &
+/Applications/regenerator/regenerator2000 program.prg --vice localhost:6502
+
+# Run as MCP server (HTTP) for programmatic/AI access
+/Applications/regenerator/regenerator2000 --mcp-server
+
+# Run as MCP server (stdio) for Claude Code integration
+/Applications/regenerator/regenerator2000 --mcp-server-stdio
+```
+
+### Disassembly Key Concepts
+- **Project files** (`.regen2000proj`): Save labels, comments, data-type annotations — use these for iterative reverse engineering sessions
+- **Assembler format**: Always use `--assembler kick` to export KickAssembler-compatible syntax
+- **VICE label import**: Use `.sym` files from KickAssembler builds to pre-annotate disassembly
+- **Headless mode**: `--headless` requires a `.regen2000proj` file; use for CI/export scripts
+- **Data types**: In TUI, mark regions as Code, Byte, Word, PETSCII Text, Screencode Text, etc.
+- **MCP integration**: The `--mcp-server-stdio` mode allows Claude Code to drive disassembly programmatically
+
+### Reverse Engineering Workflow
+1. Build project to get `.prg` and `.sym` files
+2. Open `.prg` in Regenerator 2000 with `--import_lbl` pointing to `.sym`
+3. Annotate in TUI: mark data regions, add labels/comments, run auto-analysis
+4. Save as `.regen2000proj` for iterative work
+5. Export with `--export_asm` and `--assembler kick` to get annotated source
 
 ## Architecture Overview
 

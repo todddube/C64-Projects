@@ -1,7 +1,12 @@
 {
   "permissions": {
     "allow": [
-      "Bash(java:*)"
+      "Bash(java:*)",
+      "Bash(cp /Applications/KickAssembler/KickAssembler.pdf /Users/todddube/Documents/Github/C64-Projects/kickass_examples/KickAssembler.pdf)",
+      "Bash(cp /Applications/KickAssembler/KickAss.cfg /Users/todddube/Documents/Github/C64-Projects/kickass_examples/KickAss.cfg)",
+      "WebFetch(domain:tnd64.unikat.sk)",
+      "WebFetch(domain:tnd64.dreamhosters.com)",
+      "Bash(/Applications/regenerator/regenerator2000 --help)"
     ],
     "deny": []
   }
