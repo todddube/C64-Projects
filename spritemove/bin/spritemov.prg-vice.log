@@ -1,0 +1,69 @@
+/Users/todddube/Documents/Github/C64-Projects/spritemove
+Error - failed to retrieve executable path, falling back to getcwd() + argv[0]
+
+Reading configuration file `/Users/todddube/.config/vice/vicerc'.
+ 
+*** VICE Version 3.10 ***
+ 
+This is the condensed log, for the full log use --verbose or --debug.
+ 
+Main: random seed was: 0x6aab2781
+Main: command line was: /Applications/vice-arm64-gtk3/VICE.app/Contents/Resources/bin/x64sc -autostartprgmode 1 -autostart /Users/todddube/Documents/Github/C64-Projects/spritemove/spritemov.prg
+Main: VICE system file directory: '/Applications/vice-arm64-gtk3/VICE.app/Contents/Resources/bin/../share/vice'.
+Main: VICE system file search path: '/Users/todddube/.local/share/vice:/Applications/vice-arm64-gtk3/VICE.app/Contents/Resources/bin:/Applications/vice-arm64-gtk3/VICE.app/Contents/Resources/bin/../share/vice'.
+Sysfile: Loading `/Applications/vice-arm64-gtk3/VICE.app/Contents/Resources/bin/../share/vice/C64/kernal-901227-03.bin'.
+C64MEM: Kernal rev #3 ($03) Sum: 50954 ($C70A) SHA1: 1d503e56df85a62fee696e7618dc5b4e781df1bb.
+Sysfile: Loading `/Applications/vice-arm64-gtk3/VICE.app/Contents/Resources/bin/../share/vice/C64/basic-901226-01.bin'.
+Sysfile: Loading `/Applications/vice-arm64-gtk3/VICE.app/Contents/Resources/bin/../share/vice/C64/chargen-901225-01.bin'.
+DriveROM: Error - 2000 ROM image not found. Hardware-level 2000 emulation is not available.
+DriveROM: Error - 4000 ROM image not found. Hardware-level 4000 emulation is not available.
+DriveROM: Error - CMDHD ROM image not found. Hardware-level CMDHD emulation is not available.
+Sysfile: Loading `/Applications/vice-arm64-gtk3/VICE.app/Contents/Resources/bin/../share/vice/DRIVES/dos1541ii-251968-03.bin'.
+VIC-II: Initializing chip model "MOS8565" (63 cycles per line, 312 raster lines).
+Window: Chip 'VICII' using GTK3 backend 'OpenGL'.
+OpenGL: Loading vertex shader: /Applications/vice-arm64-gtk3/VICE.app/Contents/Resources/bin/../share/vice/GLSL/viewport.vert
+OpenGL: Loading fragment shader: /Applications/vice-arm64-gtk3/VICE.app/Contents/Resources/bin/../share/vice/GLSL/builtin.frag
+OpenGL: Loading vertex shader: /Applications/vice-arm64-gtk3/VICE.app/Contents/Resources/bin/../share/vice/GLSL/viewport.vert
+OpenGL: Loading fragment shader: /Applications/vice-arm64-gtk3/VICE.app/Contents/Resources/bin/../share/vice/GLSL/builtin-interlaced.frag
+OpenGL: Loading vertex shader: /Applications/vice-arm64-gtk3/VICE.app/Contents/Resources/bin/../share/vice/GLSL/viewport.vert
+OpenGL: Loading fragment shader: /Applications/vice-arm64-gtk3/VICE.app/Contents/Resources/bin/../share/vice/GLSL/bicubic.frag
+OpenGL: Loading vertex shader: /Applications/vice-arm64-gtk3/VICE.app/Contents/Resources/bin/../share/vice/GLSL/viewport.vert
+OpenGL: Loading fragment shader: /Applications/vice-arm64-gtk3/VICE.app/Contents/Resources/bin/../share/vice/GLSL/bicubic-interlaced.frag
+Palette: Loading palette `/Applications/vice-arm64-gtk3/VICE.app/Contents/Resources/bin/../share/vice/C64/pepto-ntsc-sony.vpl'.
+Palette: Loading palette `/Applications/vice-arm64-gtk3/VICE.app/Contents/Resources/bin/../share/vice/C64/pepto-ntsc-sony.vpl'.
+Sound: Available sound devices: coreaudio dummy dump fs wav voc iff aiff mp3 flac ogg soundmovie
+Joystick: Warning - Failed to open `/Users/todddube/.config/vice/gtk3-joymap-C64SC.vjm'.
+Joystick: Warning - using minimal default mapping.
+Keymap: Loading keymap `/Applications/vice-arm64-gtk3/VICE.app/Contents/Resources/bin/../share/vice/C64/gtk3_sym.vkm'.
+Hotkeys: parsing default file '/Applications/vice-arm64-gtk3/VICE.app/Contents/Resources/bin/../share/vice/hotkeys/hotkeys.vhk' for machine C64
+
+Main CPU: starting at ($FFFC).
+Main CPU: RESET.
+VIC-II: VSP Bug: safe channels are: 02456. Emulation of memory corruption is disabled.
+AUTOSTART: Autodetecting image type of `/Users/todddube/Documents/Github/C64-Projects/spritemove/spritemov.prg'.
+Filesystem Image: Error - Cannot open file `/Users/todddube/Documents/Github/C64-Projects/spritemove/spritemov.prg'.
+Tape: Error - Cannot open file `/Users/todddube/Documents/Github/C64-Projects/spritemove/spritemov.prg'
+CART: '/Users/todddube/Documents/Github/C64-Projects/spritemove/spritemov.prg' is not a valid CRT file.
+AUTOSTART: Error - Cannot open `/Users/todddube/Documents/Github/C64-Projects/spritemove/spritemov.prg'.
+AUTOSTART: Error - `/Users/todddube/Documents/Github/C64-Projects/spritemove/spritemov.prg' is not a valid file.
+Error - Failed to autostart '/Users/todddube/Documents/Github/C64-Projects/spritemove/spritemov.prg'
+
+Configure Flags:
+--enable-gtk3ui --enable-option-checking --disable-arch --disable-html-docs --enable-cpuhistory --enable-ethernet --enable-midi --enable-parsid --enable-pdf-docs --with-fastsid --with-flac --with-gif --with-lame --with-libcurl --with-png --with-resid --with-vorbis --enable-macos-minimum-version=12.0
+
+Resources with non default values:
+SaveResourcesOnExit=1
+Window0Height=940
+Window0Width=1128
+Window0Xpos=4362
+Window0Ypos=277
+VICIIPaletteFile="pepto-ntsc-sony.vpl"
+VICIIExternalPalette=1
+VICIIFilter=2
+AutostartPrgMode=1
+
+reconstructed commandline options (might be incomplete):
+-default -saveres -windowxpos "4362" -windowypos "277" -windowwidth "1128" -windowheight "940" -VICIIfilter "2" -VICIIextpal -VICIIpalette "pepto-ntsc-sony.vpl" -autostartprgmode "1"
+
+Writing configuration file `/Users/todddube/.config/vice/vicerc'.
+VIC-II: VSP Bug: safe channels are: 2. Emulation of memory corruption is disabled.

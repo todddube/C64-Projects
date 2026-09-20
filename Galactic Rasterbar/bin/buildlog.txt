@@ -1,0 +1,17 @@
+//------------------------------------------------------
+//------------------------------------------------------
+//         Kick Assembler v5.25 by Mads Nielsen         
+//------------------------------------------------------
+//------------------------------------------------------
+Output dir: /Users/todddube/Documents/Github/C64-Projects/Galactic Rasterbar/bin
+parsing
+flex pass 1
+Output pass
+Writing prg file: /Users/todddube/Documents/Github/C64-Projects/Galactic Rasterbar/galactic_rasterbar.prg
+
+Memory Map
+----------
+Default-segment:
+  $0801-$38e5 Unnamed
+
+Writing Symbol file: Galactic Rasterbar Power_disasm.sym
