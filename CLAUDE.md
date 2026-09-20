@@ -41,8 +41,20 @@ java -jar /Applications/KickAssembler/KickAss.jar filename.asm
 # Build with specific output directory and filename
 java -jar /Applications/KickAssembler/KickAss.jar main.asm -odir bin -o projectname.prg
 
-# Build output will be in same directory or bin/ subdirectory
-# Generated files: .prg (program), .sym (symbols), .dbg (debug info)
+# Build output goes to bin/. KickAssembler names the .prg after the source
+# file (spritemov.asm -> bin/spritemov.prg) unless -o is given.
+# Generated files: .prg only (plus buildlog.txt when tee'd as below)
+
+# Minimal-output build (the standard form used here):
+java -jar /Applications/KickAssembler/KickAss.jar spritemov.asm -odir bin 2>&1 | tee bin/buildlog.txt | grep -vE '^//|^parsing$|^flex pass|^Output pass$|^Output dir:|^$'
+# A clean build prints exactly one line: "Writing prg file: spritemov.prg".
+# Anything else is an error/warning. Full output is kept in bin/buildlog.txt.
+#
+# /Applications/KickAssembler/KickAss.cfg is deliberately EMPTY: no -showmem
+# (memory map), no -symbolfile (.sym), no -debug (.dbg). Never add those by
+# default; pass one on the command line only for a single build that needs it
+# (e.g. -symbolfile for a Regenerator/VICE-monitor session, -showmem to check
+# segment placement).
 
 # Run in VICE emulator (macOS arm64)
 /Applications/vice-arm64-gtk3/bin/x64sc program.prg
@@ -51,22 +63,30 @@ java -jar /Applications/KickAssembler/KickAss.jar main.asm -odir bin -o projectn
 /Applications/vice-arm64-gtk3/bin/x64sc -autostart program.prg
 ```
 
-### Custom Slash Commands (Claude Code agents)
-- `/build` — Builds the current project's main.asm with KickAssembler
-- `/build-all` — Builds all main.asm files in the repo
-- `/c64-new` — Scaffolds a new C64 project with standard structure
-- `/disassemble` — Disassembles a .prg (or other supported file) using Regenerator 2000
+### Custom Slash Commands (`.claude/commands/`)
+- `/build [path]` — Builds the current project with KickAssembler, then offers to run it in VICE
+- `/build-all` — Builds every project in the repo and prints a summary table
+- `/run [file.prg]` — Runs a .prg in VICE x64sc with `-autostart`
+- `/c64-new <name>` — Scaffolds a new project (`main.asm` + `memorymap.asm` + `bin/`)
 
-### CI/CD Integration
-- **GitHub Actions**: Builds all `main.asm` files in subdirectories on push/PR to main branch
-  - Uses Java 21 (Zulu distribution) and downloads KickAssembler from official source
-  - Outputs to `${{runner.workspace}}/build/` with directory-named PRG files
-  - Artifacts retained for 1 day
-- **Azure DevOps**: Builds and deploys to Ultimate II+ cartridge via FTP
-  - Requires private build agent with Java, KickAssembler, and lftp installed
-  - Deploys to `/Usb0/Dev/` directory on Ultimate II+ via FTP
-  - Uses variable group `c64` for FTP credentials
-- Build logs are stored in `buildlog.txt` in each project's `bin/` directory
+A "project" is a directory with `main.asm`, **or** a directory whose single top-level
+`.asm` is the main source: `scroller/scroller.asm`, `spritemove/spritemov.asm`. The
+build commands handle both; don't assume every project is `main.asm`.
+
+### Run/test workflow used in practice
+```bash
+# Build (minimal output, see above), then launch VICE in the background and capture its log
+java -jar /Applications/KickAssembler/KickAss.jar spritemov.asm -odir bin 2>&1 | tee bin/buildlog.txt | grep -vE '^//|^parsing$|^flex pass|^Output pass$|^Output dir:|^$'
+nohup /Applications/vice-arm64-gtk3/bin/x64sc -autostart bin/spritemov.prg > bin/spritemov.prg-vice.log 2>&1 &
+```
+The VICE log always contains "Unknown disk image" / "no CRT header" / tape errors for a
+.prg — those are autodetect probes, not failures. The line to look for is
+`AUTOSTART: Loading PRG file ... with direct RAM injection`.
+
+### CI/CD
+There is **no CI in this repo** (no `.github/workflows/`, no `azure-pipelines.yml`).
+Builds are local only; `bin/` output is committed for several projects. Deployment to the
+Ultimate II+ cartridge (`/Usb0/Dev/` via FTP) is manual.
 
 ## Disassembly Workflow
 
@@ -119,13 +139,12 @@ Binary: `/Applications/regenerator/regenerator2000`
 ## Architecture Overview
 
 ### Project Structure
-The codebase is organized into five main areas:
-
-1. **c64_lessons/**: Progressive tutorial projects from basic to advanced topics
-2. **kickass_examples/**: Advanced KickAssembler feature demonstrations
-3. **demos/**: Complete demo programs with visual effects
-4. **spritemove/**, **scroller/**: Individual project directories
-5. **bin/**: Global build output directory
+1. **c64_lessons/**: Progressive tutorials (`lesson01`..`lesson11`), each a self-contained `main.asm`; no external dependencies, all build clean
+2. **kickass_examples/**: The official KickAssembler example projects (scripting, PSID import, Koala import, libraries, ...)
+3. **demos/**: Standalone demo sources (`demo1.asm`, `plasma_190.asm`) plus reference `.prg`/`.d64` files that are *not* built from source
+4. **spritemove/** (`spritemov.asm`): Four physics-driven multicolor ball sprites with ghost trails, starfield, SID swoosh SFX. Single file, no imports, heavily commented — read its header before editing
+5. **scroller/** (`scroller.asm`): Raster bars + scroller + SID music. **Depends on the sibling repo `../C64-Standards/include/`** (`c64_constants.asm`, `zeropage.asm`) — it must be checked out next to this repo or the build fails on `#import`
+6. **Galactic Rasterbar/**: Reverse-engineering project. `*_disasm.asm` / `*_todd.asm` are Regenerator 2000 output in **64tass syntax** (`;` comments, `label = $xxxx`), not KickAssembler — re-export with `--assembler kick` before building with KickAss. Original binary is in `orig/`
 
 ### Standard Assembly Structure
 ```assembly
@@ -219,12 +238,12 @@ project_directory/
 
 - **Primary target**: Ultimate II+ cartridge
 - **Emulation**: VICE emulator for testing
-- **Deployment**: Automated FTP upload to `/Usb0/Dev/` on cartridge
+- **Deployment**: Manual FTP upload to `/Usb0/Dev/` on the cartridge (no CI/pipeline in this repo)
 - **Testing**: Log files indicate extensive VICE emulator usage
 
 ## KickAssembler Features
 
-Reference: `C:\C64\KickAssembler\KickAssembler.pdf`
+Reference: `/Applications/KickAssembler/KickAssembler.pdf`
 
 This codebase makes extensive use of KickAssembler's advanced features:
 - Namespace and library system for code organization
@@ -281,6 +300,13 @@ lda (ptr),y
 - CIA2: `$DD00-$DDFF`
 
 ## Common Build Errors
+
+### Missing import (scroller)
+```
+Error: File not found: ../../C64-Standards/include/c64_constants.asm
+```
+The `C64-Standards` repo is not cloned beside this one. Clone it to
+`/Users/todddube/Documents/Github/C64-Standards` or inline the needed constants.
 
 ### Branch Too Far
 When loops exceed 127 bytes, relative branches fail with:
