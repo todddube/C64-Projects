@@ -59,7 +59,10 @@ exit_demo:
     sta $d011
     lda #$ff
     sta $dc00
-    cli
+                                // deliberately NO cli here: $fffc does its
+                                // own sei, and an IRQ taken in that window
+                                // would run the kernal handler on the zero
+                                // page this demo has overwritten
     jmp ($fffc)                 // kernal RESET -> clean READY.
 ```
 

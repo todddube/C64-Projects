@@ -5,7 +5,7 @@ $ARGUMENTS = optional path to project directory (defaults to current project con
 Find the project's main source file. Prefer `main.asm`; if the project has no `main.asm` but exactly one top-level `.asm` file (e.g. `scroller/scroller.asm`), that file is the main source. Build with KickAssembler:
 
 ```
-java -jar /Applications/KickAssembler/KickAss.jar <source>.asm -odir bin 2>&1 | tee bin/buildlog.txt | grep -vE '^//|^parsing$|^flex pass|^Output pass$|^Output dir:|^$'
+java -jar /Applications/KickAssembler/KickAss.jar <source>.asm -odir bin 2>&1 | tee bin/buildlog.txt | grep -vE '^//|^parsing$|^flex pass|^Output pass$|^Output dir:|^$|^ +(Music:|init |\$)'
 ```
 
 The global `/Applications/KickAssembler/KickAss.cfg` is empty (no `-showmem`, no `-symbolfile`), and the grep strips the banner and pass lines, so a clean build prints only `Writing prg file: <name>.prg`; anything else printed is an error or warning. The full unfiltered output is always in `bin/buildlog.txt`. Never add `-showmem`, `-symbolfile`, `-debug` or `-bytedump` unless asked for that one build.

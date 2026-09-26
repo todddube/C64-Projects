@@ -65,9 +65,13 @@ java -jar /Applications/KickAssembler/KickAss.jar main.asm -odir bin -o projectn
 # Generated files: .prg only (plus buildlog.txt when tee'd as below)
 
 # Minimal-output build (the standard form used here):
-java -jar /Applications/KickAssembler/KickAss.jar main.asm -odir bin 2>&1 | tee bin/buildlog.txt | grep -vE '^//|^parsing$|^flex pass|^Output pass$|^Output dir:|^$'
+java -jar /Applications/KickAssembler/KickAss.jar main.asm -odir bin 2>&1 | tee bin/buildlog.txt | grep -vE '^//|^parsing$|^flex pass|^Output pass$|^Output dir:|^$|^ +(Music:|init |\$)'
 # A clean build prints exactly one line: "Writing prg file: main.prg".
 # Anything else is an error/warning. Full output is kept in bin/buildlog.txt.
+# The last alternative in the grep strips KickAssembler's PSID import
+# banner ("Music: ...", the load range, "init/play"), which a project that
+# #imports a .sid prints on a SUCCESSFUL build - without it, spritemove
+# looks like it emitted three warnings every time.
 #
 # /Applications/KickAssembler/KickAss.cfg is deliberately EMPTY: no -showmem
 # (memory map), no -symbolfile (.sym), no -debug (.dbg). Never add those by
@@ -97,7 +101,7 @@ several `.asm` files and no `main.asm` (`c64_lessons/lesson11/` step files, `dem
 ### Run/test workflow used in practice
 ```bash
 # Build (minimal output, see above), then launch VICE in the background and capture its log
-java -jar /Applications/KickAssembler/KickAss.jar main.asm -odir bin 2>&1 | tee bin/buildlog.txt | grep -vE '^//|^parsing$|^flex pass|^Output pass$|^Output dir:|^$'
+java -jar /Applications/KickAssembler/KickAss.jar main.asm -odir bin 2>&1 | tee bin/buildlog.txt | grep -vE '^//|^parsing$|^flex pass|^Output pass$|^Output dir:|^$|^ +(Music:|init |\$)'
 nohup /Applications/vice-arm64-gtk3/bin/x64sc -autostart bin/main.prg > bin/main.prg-vice.log 2>&1 &
 ```
 The VICE log always contains "Unknown disk image" / "no CRT header" / tape errors for a
@@ -161,13 +165,14 @@ Binary: `/Applications/regenerator/regenerator2000`
 ### Disassembly Key Concepts
 - **Project files** (`.regen2000proj`): Save labels, comments, data-type annotations — use these for iterative reverse engineering sessions
 - **Assembler format**: Always use `--assembler kick` to export KickAssembler-compatible syntax
-- **VICE label import**: Use `.sym` files from KickAssembler builds to pre-annotate disassembly
+- **VICE label import**: `.sym` files pre-annotate a disassembly, but the standard build does NOT produce one — pass `-symbolfile` for that single build (see Build Commands)
 - **Headless mode**: `--headless` requires a `.regen2000proj` file; use for CI/export scripts
 - **Data types**: In TUI, mark regions as Code, Byte, Word, PETSCII Text, Screencode Text, etc.
 - **MCP integration**: The `--mcp-server-stdio` mode allows Claude Code to drive disassembly programmatically
 
 ### Reverse Engineering Workflow
-1. Build project to get `.prg` and `.sym` files
+1. Build project with `-symbolfile` to get `.prg` and `.sym` (the standard
+   build emits `.prg` only)
 2. Open `.prg` in Regenerator 2000 with `--import_lbl` pointing to `.sym`
 3. Annotate in TUI: mark data regions, add labels/comments, run auto-analysis
 4. Save as `.regen2000proj` for iterative work
@@ -225,7 +230,7 @@ project_directory/
 ├── font-project.pe   # Font editor project files
 ├── bin/              # Build outputs
 │   ├── main.prg     # Compiled program
-│   ├── main.sym     # Symbol table
+│   ├── main.sym     # Symbol table — only when built with -symbolfile
 │   ├── buildlog.txt # Build information
 │   └── *.prg-vice.log # VICE emulator test logs
 ```
@@ -415,7 +420,7 @@ done:
 ### File Types and Usage
 - **Font Projects**: `.pe` files for character set design using font editors
 - **Progressive Lessons**: Step-by-step implementation files in lesson directories
-- **Build Outputs**: `.prg` (program), `.sym` (symbols), `.dbg` (debug), `buildlog.txt`
+- **Build Outputs**: `.prg` (program) and `buildlog.txt` by default; `.sym` (symbols) and `.dbg` (debug) only when `-symbolfile` / `-debug` is passed for that build
 - **Test Logs**: `.prg-vice.log` files from VICE emulator sessions
 
 ### Development Patterns
