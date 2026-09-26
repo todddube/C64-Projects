@@ -1,6 +1,6 @@
 # Build all C64 projects in the repository
 
-Find every project recursively from the repo root. A project is a directory containing `main.asm`, or a directory with no `main.asm` but exactly one top-level `.asm` file (e.g. `spritemove/spritemov.asm`). Build each with KickAssembler:
+Find every project recursively from the repo root. A project is a directory containing `main.asm`, or a directory with no `main.asm` but exactly one top-level `.asm` file (e.g. `scroller/scroller.asm`). Build each with KickAssembler:
 
 ```
 java -jar /Applications/KickAssembler/KickAss.jar <source>.asm -odir bin 2>&1 | tee bin/buildlog.txt | grep -vE '^//|^parsing$|^flex pass|^Output pass$|^Output dir:|^$'

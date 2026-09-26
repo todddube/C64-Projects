@@ -2,7 +2,7 @@
 
 $ARGUMENTS = optional path to project directory (defaults to current project context)
 
-Find the project's main source file. Prefer `main.asm`; if the project has no `main.asm` but exactly one top-level `.asm` file (e.g. `spritemove/spritemov.asm`, `scroller/scroller.asm`), that file is the main source. Build with KickAssembler:
+Find the project's main source file. Prefer `main.asm`; if the project has no `main.asm` but exactly one top-level `.asm` file (e.g. `scroller/scroller.asm`), that file is the main source. Build with KickAssembler:
 
 ```
 java -jar /Applications/KickAssembler/KickAss.jar <source>.asm -odir bin 2>&1 | tee bin/buildlog.txt | grep -vE '^//|^parsing$|^flex pass|^Output pass$|^Output dir:|^$'

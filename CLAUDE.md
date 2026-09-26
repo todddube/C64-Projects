@@ -31,6 +31,25 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 alias kickass='java -jar /Applications/KickAssembler/KickAss.jar'
 ```
 
+## C64 Reference Docs and Review Agent
+
+`.claude/c64-reference/` holds the hardware and assembler references this repo reviews
+against. Read these instead of recalling register addresses from memory:
+
+| File | Covers |
+|---|---|
+| `memory-map.md` | full address map, `$01` bank switching, zero page ownership, the clean-exit sequence |
+| `vic-ii.md` | `$D000-$D02E`, VIC bank select via `$DD00`, `$D018` screen/charset/bitmap mapping, display modes, PAL/NTSC raster and badline timing, sprites, DEN blanking |
+| `sid-cia.md` | SID voice/filter registers and gate handling, CIA 1/2, the full keyboard matrix |
+| `6502.md` | addressing modes with cycle counts, flags, signed and 8.8 fixed-point idioms, NMOS pitfalls |
+| `kickassembler.md` | the complete v5.25 directive table, syntax, encodings, color constants, CLI options — extracted from `KickAssembler.pdf` |
+| `review-checklist.md` | the review rubric (CPU, memory/banking, VIC-II, raster/IRQ, SID, repo conventions) |
+
+`.claude/agents/c64-reviewer.md` defines a **`c64-reviewer`** subagent that reads those docs
+and works the checklist over changed assembly. It reads and builds but never edits. Use it
+after writing or changing C64 assembly, or when a demo misbehaves (garbage graphics, IRQ
+lockup, silent SID, crash on exit).
+
 ## Build Commands
 
 ### Local Development (macOS)
@@ -42,12 +61,12 @@ java -jar /Applications/KickAssembler/KickAss.jar filename.asm
 java -jar /Applications/KickAssembler/KickAss.jar main.asm -odir bin -o projectname.prg
 
 # Build output goes to bin/. KickAssembler names the .prg after the source
-# file (spritemov.asm -> bin/spritemov.prg) unless -o is given.
+# file (main.asm -> bin/main.prg) unless -o is given.
 # Generated files: .prg only (plus buildlog.txt when tee'd as below)
 
 # Minimal-output build (the standard form used here):
-java -jar /Applications/KickAssembler/KickAss.jar spritemov.asm -odir bin 2>&1 | tee bin/buildlog.txt | grep -vE '^//|^parsing$|^flex pass|^Output pass$|^Output dir:|^$'
-# A clean build prints exactly one line: "Writing prg file: spritemov.prg".
+java -jar /Applications/KickAssembler/KickAss.jar main.asm -odir bin 2>&1 | tee bin/buildlog.txt | grep -vE '^//|^parsing$|^flex pass|^Output pass$|^Output dir:|^$'
+# A clean build prints exactly one line: "Writing prg file: main.prg".
 # Anything else is an error/warning. Full output is kept in bin/buildlog.txt.
 #
 # /Applications/KickAssembler/KickAss.cfg is deliberately EMPTY: no -showmem
@@ -70,23 +89,41 @@ java -jar /Applications/KickAssembler/KickAss.jar spritemov.asm -odir bin 2>&1 |
 - `/c64-new <name>` — Scaffolds a new project (`main.asm` + `memorymap.asm` + `bin/`)
 
 A "project" is a directory with `main.asm`, **or** a directory whose single top-level
-`.asm` is the main source: `scroller/scroller.asm`, `spritemove/spritemov.asm`. The
-build commands handle both; don't assume every project is `main.asm`.
+`.asm` is the main source (`scroller/scroller.asm`). The build commands handle both;
+don't assume every project is `main.asm`. Directories with
+several `.asm` files and no `main.asm` (`c64_lessons/lesson11/` step files, `demos/`,
+`Galactic Rasterbar/`) are not auto-buildable — name the file explicitly.
 
 ### Run/test workflow used in practice
 ```bash
 # Build (minimal output, see above), then launch VICE in the background and capture its log
-java -jar /Applications/KickAssembler/KickAss.jar spritemov.asm -odir bin 2>&1 | tee bin/buildlog.txt | grep -vE '^//|^parsing$|^flex pass|^Output pass$|^Output dir:|^$'
-nohup /Applications/vice-arm64-gtk3/bin/x64sc -autostart bin/spritemov.prg > bin/spritemov.prg-vice.log 2>&1 &
+java -jar /Applications/KickAssembler/KickAss.jar main.asm -odir bin 2>&1 | tee bin/buildlog.txt | grep -vE '^//|^parsing$|^flex pass|^Output pass$|^Output dir:|^$'
+nohup /Applications/vice-arm64-gtk3/bin/x64sc -autostart bin/main.prg > bin/main.prg-vice.log 2>&1 &
 ```
 The VICE log always contains "Unknown disk image" / "no CRT header" / tape errors for a
 .prg — those are autodetect probes, not failures. The line to look for is
 `AUTOSTART: Loading PRG file ... with direct RAM injection`.
 
+To *see* what a demo renders without watching it in real time, let VICE run a fixed
+number of cycles in warp mode and screenshot on exit:
+```bash
+/Applications/vice-arm64-gtk3/bin/x64sc -autostart bin/main.prg \
+    -warp -limitcycles 14000000 -exitscreenshot /tmp/shot.png
+```
+Autostart alone costs roughly 5M cycles (the C64 boots first), and PAL runs ~985248
+cycles/second, so `5000000 + seconds * 985248` lands on the frame you want. This is the
+fastest way to check an intro, a raster split or a color choice.
+
 ### CI/CD
-There is **no CI in this repo** (no `.github/workflows/`, no `azure-pipelines.yml`).
-Builds are local only; `bin/` output is committed for several projects. Deployment to the
-Ultimate II+ cartridge (`/Usb0/Dev/` via FTP) is manual.
+There are **no GitHub Actions** (no `.github/workflows/`). The only pipeline is
+`c64_lessons/azure-pipelines.yml`, inherited from the upstream course repo: it has
+`trigger: none` (never runs automatically), needs a self-hosted agent pool named `Pi4`
+with KickAss.jar in `/usr/local/bin`, and only builds directories containing `main.asm`
+— so it covers most `c64_lessons/*` but **not** `spritemove/`, `scroller/`, `demos/` or
+`lesson11/`. Its CD stage `lftp mput`s the .prg files to `/Usb0/Dev` on the Ultimate II+.
+
+In practice builds are local only; `bin/` output is committed for several projects and
+deployment to the cartridge is manual.
 
 ## Disassembly Workflow
 
@@ -139,11 +176,12 @@ Binary: `/Applications/regenerator/regenerator2000`
 ## Architecture Overview
 
 ### Project Structure
-1. **c64_lessons/**: Progressive tutorials (`lesson01`..`lesson11`), each a self-contained `main.asm`; no external dependencies, all build clean
+1. **c64_lessons/**: Progressive tutorials. `lesson01`..`lesson10b` each have a `main.asm` (07/08/09/10b also `#import` their local `memorymap.asm` + `charset_1.asm`); no external dependencies. `lesson11` is the exception — no `main.asm`, just standalone `step_1_`..`step_4_` / `optimized-step4.asm` files showing incremental sprite development
 2. **kickass_examples/**: The official KickAssembler example projects (scripting, PSID import, Koala import, libraries, ...)
 3. **demos/**: Standalone demo sources (`demo1.asm`, `plasma_190.asm`) plus reference `.prg`/`.d64` files that are *not* built from source
-4. **spritemove/** (`spritemov.asm`): Four physics-driven multicolor ball sprites with ghost trails, starfield, SID swoosh SFX. Single file, no imports, heavily commented — read its header before editing
-5. **scroller/** (`scroller.asm`): Raster bars + scroller + SID music. **Depends on the sibling repo `../C64-Standards/include/`** (`c64_constants.asm`, `zeropage.asm`) — it must be checked out next to this repo or the build fails on `#import`
+4. **spritemove/** (`main.asm`): Four physics-driven multicolor ball sprites with ghost trails, starfield, ASCII impact sparks and SID ping SFX, opening with a multicolor-bitmap spiral intro set to `Nightshift.sid`. All demo logic is in `main.asm`, heavily commented — read its header before editing. It imports four data/sequence files, none of them buildable on their own: `intro.asm` (the opening sequence), `intro_gfx.asm` (the spiral bitmap, generated at assembly time), `music.asm` (PSID import) and `sprite_gen.asm` (the ray-shaded ball frames + trail disc).
+   **Its code segment starts at `$2240`, not the usual `$0810`** — a PSID player is not relocatable and Nightshift loads at `$1000-$1d77`. The intro runs in VIC bank 1 (bitmap `$4000`, video matrix `$6000`) and switches back to bank 0 text mode for the demo
+5. **scroller/** (`scroller.asm`): Raster bars + scroller + SID music. **Depends on the sibling repo `C64-Standards`** — imports are written `../../C64-Standards/include/...`, resolved relative to `scroller/`, i.e. `Github/C64-Standards/include/` (`c64_constants.asm`, `zeropage.asm`) — it must be checked out next to this repo or the build fails on `#import`
 6. **Galactic Rasterbar/**: Reverse-engineering project. `*_disasm.asm` / `*_todd.asm` are Regenerator 2000 output in **64tass syntax** (`;` comments, `label = $xxxx`), not KickAssembler — re-export with `--assembler kick` before building with KickAss. Original binary is in `orig/`
 
 ### Standard Assembly Structure
@@ -206,6 +244,44 @@ project_directory/
 - **Hardware Testing**: Ultimate II+ cartridge for final validation
 - **Progressive Development**: Step-by-step files (lesson11) show incremental testing approach
 
+## Demo Conventions
+
+### Exit key: RUN/STOP ends the demo
+Every demo in this repo that takes over the machine (`sei`, own keyboard scan,
+BASIC's zero page reused) must provide a `check_exit` routine called once per
+frame from the main loop. RUN/STOP is keyboard row 7 (`$7f` -> `$dc00`), column
+bit 7, active low:
+
+```assembly
+check_exit:
+    lda #$7f
+    sta $dc00
+    lda $dc01
+    and #$80
+    beq exit_demo           // bit clear = pressed
+    lda #$ff
+    sta $dc00
+    rts
+```
+
+`exit_demo` silences the SID (`$d400..$d418`), clears `$d015`, restores `$d011`
+to `$1b`, deselects the keyboard rows, then `jmp ($fffc)` — the kernal RESET
+vector. Do **not** `rts` back to BASIC: these demos overwrite `$02-$8f`, so
+BASIC will crash. Do **not** `cli` first either: `$fffc` does its own `sei`, and
+an IRQ taken in that window runs the kernal handler on the trashed zero page.
+Because `sei` does not mask NMI, `start` should also write `$7f` to `$dd0d` and
+read it back, or RUN/STOP+RESTORE will warm-start BASIC over the same memory.
+`/c64-new` scaffolds this routine into `main.asm`.
+
+Reference implementation: `spritemove/main.asm` (`check_exit` / `exit_demo`).
+
+### Blanking the screen (intro reveals)
+Clearing DEN (bit 4 of `$d011`, i.e. `$0b` instead of `$1b`) switches the whole
+display off — text, color RAM *and* sprites — leaving a flat sheet of border
+color. Set border and background to the same value first so nothing flickers
+when DEN comes back on. `spritemove/main.asm` (`play_intro`) uses this for a
+blue-screen opening with a SID swoop, then sets DEN and reveals the animation.
+
 ## Common Patterns
 
 ### Sprite Programming
@@ -238,7 +314,7 @@ project_directory/
 
 - **Primary target**: Ultimate II+ cartridge
 - **Emulation**: VICE emulator for testing
-- **Deployment**: Manual FTP upload to `/Usb0/Dev/` on the cartridge (no CI/pipeline in this repo)
+- **Deployment**: Manual FTP upload to `/Usb0/Dev/` on the cartridge (the Azure pipeline that automated this is disabled with `trigger: none`)
 - **Testing**: Log files indicate extensive VICE emulator usage
 
 ## KickAssembler Features
