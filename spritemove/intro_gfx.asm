@@ -327,3 +327,39 @@ EmitField(2)
 
 * = INTRO_WAVE_D "Intro Wave D"
 EmitField(3)
+
+//==================================================================
+// THE WIPE FIELD - the handoff to the demo
+//
+// A fifth field, and the only one that is MONOTONIC: every other field
+// wraps with mod 16 so its values repeat across the screen, which is
+// what makes them cycle. A wipe must not repeat - each cell has to have
+// exactly one moment at which it goes out - so this one is a clamped
+// ramp instead of a modulo.
+//
+// The value is the cell's turn in the queue: 0 goes first, 15 last. It
+// rises from the edge of the screen toward the centre, with an angular
+// term mixed in so the boundary sweeps round as it closes. The white
+// sheet left by the flash is therefore eaten from the outside in, in a
+// spiral, and the last thing to go is the eye of the vortex.
+//
+// Because it is just another field, phase W needs no new code in the
+// sweep: build_wipe_tabs fills vmtab with black for every entry that has
+// already come up and white for the rest, and paint_sweep does the rest.
+//==================================================================
+
+.const WIPE_DMAX = 200.0        // furthest a cell centre gets from centre
+
+* = INTRO_WIPE "Intro Wipe Field"
+.for (var crow = 0; crow < 25; crow++) {
+    .for (var ccol = 0; ccol < 40; ccol++) {
+        .var dx = (ccol * 8 + 4) - CENTER_PX
+        .var dy = ((crow * 8 + 4) - CENTER_PY) * ASPECT
+        .var d  = sqrt(dx * dx + dy * dy)
+        .var a  = atan2(dy, dx) / (2 * PI)
+        .var t  = floor((1 - d / WIPE_DMAX) * 12 + (a + 0.5) * 3.5)
+        .if (t < 0)  { .eval t = 0 }
+        .if (t > 15) { .eval t = 15 }
+        .byte t
+    }
+}

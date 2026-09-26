@@ -77,6 +77,7 @@
 //   $63f8-$63ff  intro sprite pointers (VIC bank 1)
 //   $6400-$65ff  intro logo sprites (VIC bank 1, 8 x 64 bytes)
 //   $6600-$66ff  intro sine table   (CPU only)
+//   $6700-$6ae7  intro wipe field   (CPU only)
 //
 // SPRITE ROLES
 // ------------
@@ -354,8 +355,7 @@ BasicUpstart2(start)            // emits a "10 SYS 8768" BASIC stub at $0801
 .label pal_tick     = $6f       // intro: countdown to the next ramp step
 .label fade_stage   = $70       // intro: how many band colors are live (0-2)
 .label vm_byte      = $71       // intro: byte filled into the video matrix
-// $72 is free again: hi-res bitmap has no color RAM, so the intro's
-// old col_byte has no job. Left unallocated rather than reused.
+.label wipe_t       = $72       // intro: how far the closing wipe has got
 
 //------------------------------------------------------------------
 // Constants
@@ -406,11 +406,13 @@ BasicUpstart2(start)            // emits a "10 SYS 8768" BASIC stub at $0801
 .label INTRO_SPR_PTR = INTRO_SPR / $40   // = $90, the first VIC block number
 .label INTRO_SPR_PTRS = INTRO_VM + $3f8  // = $63f8, bank 1 sprite pointers
 .label INTRO_SIN    = $6600     // 256-entry sine, one period (intro_sprites)
+.label INTRO_WIPE   = $6700     // 1000 cell wipe order, 0 first .. 15 last
 .label INTRO_A_LEN  = 112       // rings fade up       (~2.2 s PAL)
 .label INTRO_B_LEN  = 176       // accelerating spiral, logo flies in (~3.5 s)
 .label INTRO_F_LEN  = 224       // tight field, logo still flying (~4.5 s)
 .label INTRO_C_LEN  = 112       // tight wind-up       (~2.2 s PAL)
 .label INTRO_D_LEN  = 24        // last burst + white flash (~0.5 s PAL)
+.label INTRO_W_LEN  = 32        // spiral wipe into the demo (~0.64 s PAL)
 
 // Speed control
 .label SPEED_MIN    = 1

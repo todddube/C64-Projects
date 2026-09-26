@@ -7,7 +7,7 @@ Reading configuration file `/Users/todddube/.config/vice/vicerc'.
  
 This is the condensed log, for the full log use --verbose or --debug.
  
-Main: random seed was: 0x6ab7eaa0
+Main: random seed was: 0x6ab7ece9
 Main: command line was: /Applications/vice-arm64-gtk3/VICE.app/Contents/Resources/bin/x64sc -autostart bin/main.prg
 Main: VICE system file directory: '/Applications/vice-arm64-gtk3/VICE.app/Contents/Resources/bin/../share/vice'.
 Main: VICE system file search path: '/Users/todddube/.local/share/vice:/Applications/vice-arm64-gtk3/VICE.app/Contents/Resources/bin:/Applications/vice-arm64-gtk3/VICE.app/Contents/Resources/bin/../share/vice'.
@@ -39,7 +39,7 @@ Hotkeys: parsing default file '/Applications/vice-arm64-gtk3/VICE.app/Contents/R
 
 Main CPU: starting at ($FFFC).
 Main CPU: RESET.
-VIC-II: VSP Bug: safe channels are: 03456. Emulation of memory corruption is disabled.
+VIC-II: VSP Bug: safe channels are: 35. Emulation of memory corruption is disabled.
 AUTOSTART: Autodetecting image type of `bin/main.prg'.
 Filesystem Image Probe: Error - Import GCR: Unknown GCR image version 55.
 Filesystem Image: Unknown disk image `bin/main.prg'.
@@ -48,7 +48,7 @@ Error - no CRT header found.
 CART: '/Users/todddube/Documents/Github/C64-Projects/spritemove/bin/main.prg' is not a valid CRT file.
 AUTOSTART: Loading PRG file `bin/main.prg' with direct RAM injection.
 AUTOSTART: Resetting the machine to autostart '*'
-VIC-II: VSP Bug: safe channels are: 12345. Emulation of memory corruption is disabled.
+VIC-II: VSP Bug: safe channels are: 347. Emulation of memory corruption is disabled.
 AUTOSTART: Turning Warp mode on.
 AUTOSTART: `bin/main.prg' recognized as program/p00 file.
 Main CPU: RESET.
@@ -67,7 +67,7 @@ Copybuffer increase to 64 bytes
 Sound: reSID: MOS8580, filter on, sampling rate 48000Hz - resampling, pass to 21600Hz
 VSync: Sync reset
 Unit 8: RESET.
-AUTOSTART: Injecting program data at $0801 (size $5eff)
+AUTOSTART: Injecting program data at $0801 (size $62e7)
 AUTOSTART: Ready
 AUTOSTART: Turning Warp mode off.
 AUTOSTART: Starting program.
@@ -86,7 +86,7 @@ Window0Height=940
 Window0Width=1128
 Window0Xpos=1206
 Window0Ypos=528
-ExitScreenshotName="/private/tmp/claude-501/-Users-todddube-Documents-Github-C64-Projects-spritemove/2c04dc35-02d2-4890-ba51-25c576c16c15/scratchpad/h6_10.5.png"
+ExitScreenshotName="/private/tmp/claude-501/-Users-todddube-Documents-Github-C64-Projects-spritemove/2c04dc35-02d2-4890-ba51-25c576c16c15/scratchpad/x_12.7.png"
 VICIIPaletteFile="pepto-ntsc-sony.vpl"
 VICIIExternalPalette=1
 VICIIFilter=2
@@ -95,8 +95,8 @@ MonitorServerAddress="127.0.0.1:6510"
 MonitorServer=1
 
 reconstructed commandline options (might be incomplete):
--default -saveres -windowxpos "1206" -windowypos "528" -windowwidth "1128" -windowheight "940" -exitscreenshot "/private/tmp/claude-501/-Users-todddube-Documents-Github-C64-Projects-spritemove/2c04dc35-02d2-4890-ba51-25c576c16c15/scratchpad/h6_10.5.png" -VICIIfilter "2" -VICIIextpal -VICIIpalette "pepto-ntsc-sony.vpl" -autostartprgmode "1" -remotemonitor -remotemonitoraddress "127.0.0.1:6510"
+-default -saveres -windowxpos "1206" -windowypos "528" -windowwidth "1128" -windowheight "940" -exitscreenshot "/private/tmp/claude-501/-Users-todddube-Documents-Github-C64-Projects-spritemove/2c04dc35-02d2-4890-ba51-25c576c16c15/scratchpad/x_12.7.png" -VICIIfilter "2" -VICIIextpal -VICIIpalette "pepto-ntsc-sony.vpl" -autostartprgmode "1" -remotemonitor -remotemonitoraddress "127.0.0.1:6510"
 
 Writing configuration file `/Users/todddube/.config/vice/vicerc'.
-VIC-II: VSP Bug: safe channels are: 0237. Emulation of memory corruption is disabled.
+VIC-II: VSP Bug: safe channels are: 24. Emulation of memory corruption is disabled.
 AudioComponentInstanceDispose

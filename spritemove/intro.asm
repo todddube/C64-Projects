@@ -58,8 +58,11 @@
 //                          a frame: the spiral winds up and blurs
 //   D  INTRO_D_LEN frames  a last burst, then the whole field ramps to
 //                          white through intro_flash (a flat constant
-//                          fill, so the flash lands in one frame) and the
-//                          display is handed over to the balls
+//                          fill, so the flash lands in one frame)
+//   W  INTRO_W_LEN frames  the white sheet is eaten from the edges in,
+//                          spiralling toward the middle, until the screen
+//                          is black and the display can be handed to the
+//                          balls without the mode switch ever showing
 //
 // The logo appears twice and never at the same time. Through A, B and F
 // it is a set of black holes punched in the spiral - present, shaped,
@@ -203,7 +206,26 @@ pd_next:
     dec intro_t
     bne pd_loop
 
+    //---- Phase W: the white sheet is sucked back into the vortex ----
+    lda #>INTRO_WIPE            // the one field that does not repeat
+    sta wave_pg
+    lda #INTRO_W_LEN
+    sta intro_t
+pw_loop:
+    jsr intro_sync
+    lda #INTRO_W_LEN            // wipe_t = (elapsed frames) / 2, so each of
+    sec                         // the 16 steps gets the two frames the
+    sbc intro_t                 // sweep needs to cover the whole screen
+    lsr
+    sta wipe_t
+    jsr build_wipe_tabs
+    jsr paint_sweep
+    dec intro_t
+    bne pw_loop
+
     jmp intro_to_text           // tail call: back to text mode, display off
+                                // - and the screen is already black, so the
+                                // mode switch itself is invisible
 
 //------------------------------------------------------------------
 // intro_setup - black bitmap field, VIC into multicolor bitmap mode out
@@ -501,6 +523,34 @@ spr_ramp:                       // the flying logo's colors, cyclic like
     .byte $0d, $0d, $03, $03    // light green, cyan, light blue, white
     .byte $0e, $0e, $03, $03
     .byte $0d, $0d, $07, $07
+
+//------------------------------------------------------------------
+// build_wipe_tabs - vmtab for one step of the closing wipe.
+//
+// Every entry whose turn has come up is black, the rest are still the
+// white the flash left. Both nibbles get the same color because a wiped
+// cell has to go out whatever its pixels are doing, and the logo's half
+// of the table ($10-$1f) is filled the same way so the letters go with
+// everything else rather than hanging in the dark.
+//
+// Nothing in paint_sweep changes for this: the wipe is entirely a
+// question of what is in vmtab.
+//------------------------------------------------------------------
+build_wipe_tabs:
+    ldx #$00
+bw_loop:
+    lda #$00                    // black: this cell's turn has passed
+    cpx wipe_t
+    bcc bw_store
+    beq bw_store
+    lda #$11                    // white in both nibbles: still standing
+bw_store:
+    sta vmtab, x
+    sta vmtab + $10, x
+    inx
+    cpx #$10
+    bne bw_loop
+    rts
 
 //------------------------------------------------------------------
 // set_text_ramp - choose which ramp the logo is lit through, X = 0 off,
