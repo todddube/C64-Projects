@@ -9,4 +9,7 @@ flex pass 1
 flex pass 2
 flex pass 3
 Output pass
-Writing prg file: spritemov.prg
+  Music: Nightshift by Ari Yliaho (Agemixer)
+    $1000-$1d77
+    init $1d70  play $1003
+Writing prg file: main.prg

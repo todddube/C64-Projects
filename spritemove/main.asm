@@ -1,9 +1,12 @@
 //==================================================================
-// SPRITEMOV - Smooth Wandering Balls with Trails, Stars and Swoosh SFX
+// SPRITEMOV - Smooth Wandering Balls with Trails, Stars and Ping SFX
 // KickAssembler v5.25 / Commodore 64 (6502)
 //
-// Build:  java -jar /Applications/KickAssembler/KickAss.jar spritemov.asm -odir bin
-// Run:    /Applications/vice-arm64-gtk3/bin/x64sc -autostart bin/spritemov.prg
+// Build:  java -jar /Applications/KickAssembler/KickAss.jar main.asm -odir bin
+// Run:    /Applications/vice-arm64-gtk3/bin/x64sc -autostart bin/main.prg
+//
+// Files:  main.asm        the whole demo (this file)
+//         sprite_gen.asm  assembly-time ball/trail graphics, #imported below
 //==================================================================
 //
 // WHAT THIS PROGRAM DOES
@@ -11,15 +14,23 @@
 // Four multicolor sprites - shaded balls - drift around a black, starry
 // screen with smooth, organic, random motion. Each ball spins as it moves
 // (faster when it moves faster, reversing when it turns) and drags a dark
-// "ghost" disc behind it. A soft filtered-noise "swoosh" plays on the SID
-// whenever a ball bounces off an edge or off another ball; ball-to-ball
-// hits also flash the background and make the two balls swap colors.
+// "ghost" disc behind it. A short bell-like ping plays on the SID whenever
+// a ball bounces off an edge or off another ball - low for a wall, higher
+// and randomly pitched for a ball-to-ball hit. A ball-to-ball hit also
+// throws an ASCII spark onto the text screen at the point of contact and
+// makes the two balls swap colors.
+//
+// The demo opens with a multicolor bitmap intro: a spiral ripple whose
+// colors rotate in time with a SID tune (Nightshift by Ari Yliaho), fading
+// up from black, accelerating, and flashing to white before the balls are
+// revealed. See intro.asm.
 //
 // The bottom text row is a status bar showing the current speed level.
 // The cursor keys or + / - change it while the program runs.
 //
 // The program never returns to BASIC; it runs a frame-locked main loop
-// forever. Reset the machine to exit.
+// until RUN/STOP is pressed, which resets the machine back to a clean
+// READY. prompt (see check_exit).
 //
 // MAP OF THIS FILE
 // ----------------
@@ -27,29 +38,45 @@
 //   2. Zero page variables             per-ball tables + scratch/state
 //   3. Constants                       screen limits, effect tuning
 //   4. Macros                          EaseVelocity, Negate16, ScaleVel
-//   5. start / main_loop               one-time setup, then once per frame:
+//   5. start / main_loop               one-time setup, intro, then per frame:
+//        play_intro         (once) bitmap intro + music, then reveal
+//        check_exit         RUN/STOP -> silence hardware, reset
 //        update_input       keyboard -> speed level, status bar
 //        update_sprites     ease, scale, integrate, edge bounce, spin frame
 //        check_collisions   all 6 ball pairs, push apart, swap colors
 //        update_trails      ring buffer of past positions -> trail sprites
 //        apply_positions    write all 8 sprite positions to the VIC
-//        update_effects     impact flash fade, star twinkle, cooldowns
-//        update_sound       swoosh envelope / filter sweep
+//        update_effects     impact sparks, star twinkle, cooldowns
+//        update_sound       age the ping cooldown
 //   6. Helper routines                 reverse_x/y, new_heading, random_speed,
 //                                      set_trail_color, init_stars, draw_status,
+//                                      spawn_spark,
 //                                      draw_speed_bar, push_ball, sound, RNG
 //   7. Data tables                     colors, status text, history buffers
-//   8. Generated sprite graphics       8 shaded ball frames + 1 trail disc
+//   8. #import "sprite_gen.asm"        8 shaded ball frames + 1 trail disc
+//      #import "intro.asm"            the opening sequence (its own header)
+//      #import "music.asm"            PSID import of the intro tune
+//      #import "intro_gfx.asm"        spiral bitmap + carved logo + fields
+//      #import "intro_sprites.asm"    the flying logo + sine table
+//        (both pull in intro_text.asm - glyph rows, assembly time only)
 //
 // MEMORY LAYOUT
 // -------------
-//   $0002-$006e  zero page variables (see below)
+//   $0002-$0072  zero page variables (see below)
 //   $0400-$07e7  text screen: stars, status row 24 (the sprite pointers
 //                live at $07f8-$07ff inside the same 1K block)
-//   $0801        BASIC stub "10 SYS 2064"
-//   $0810-...    code and data tables
+//   $0801        BASIC stub "10 SYS 8768"  (8768 = $2240)
+//   $1000-$1d77  Nightshift.sid - player and music data, at its own load
+//                address (invisible to the VIC, which sees char ROM here)
 //   $2000-$21ff  8 ball frames, 64 bytes each  (VIC blocks $80-$87)
 //   $2200-$223f  trail disc frame              (VIC block  $88)
+//   $2240-...    code and data tables
+//   $3000-$3fe7  intro cell fields (4 x 1000 values, CPU only)
+//   $4000-$5f3f  intro bitmap      (VIC bank 1, 8000 bytes)
+//   $6000-$63e7  intro video matrix (VIC bank 1, filled at run time)
+//   $63f8-$63ff  intro sprite pointers (VIC bank 1)
+//   $6400-$65ff  intro logo sprites (VIC bank 1, 8 x 64 bytes)
+//   $6600-$66ff  intro sine table   (CPU only)
 //
 // SPRITE ROLES
 // ------------
@@ -101,8 +128,10 @@
 // Keys (CIA1 matrix scanned directly, no kernal):
 //     CRSR up, CRSR right, +    faster
 //     CRSR down, CRSR left, -   slower
-// Holding a key auto-repeats every KEY_REPEAT frames. The bottom text row
-// shows "SPEED [####............] CRSR UP/DN +/-" and is redrawn on change.
+//     RUN/STOP                  end the demo (resets the machine)
+// Holding a speed key auto-repeats every KEY_REPEAT frames. The bottom
+// text row shows "SPD [####............] +/- CRSR STOP=END" and is
+// redrawn on change.
 //
 // EDGE HANDLING
 // -------------
@@ -126,12 +155,12 @@
 // On contact each ball's velocity AND target are forced to point away
 // from the other ball on both axes. Forcing the sign (instead of simply
 // reversing) means overlapping balls always separate and never jitter or
-// stick together. Each hit also fires a swoosh.
+// stick together. Each hit also fires a ping and throws off a spark.
 //
 // ANIMATION
 // ---------
 // The eight 24x21 multicolor frames at $2000 are not hand-drawn: a
-// KickAssembler script at the bottom of this file ray-shades a sphere with
+// KickAssembler script in sprite_gen.asm ray-shades a sphere with
 // a light source that rotates 45 degrees per frame. Bit pairs map to:
 //     01 = highlight (white, $d025)   10 = body (per-sprite $d027+n)
 //     11 = shadow (dark grey, $d026)  00 = transparent
@@ -143,12 +172,18 @@
 //
 // SOUND
 // -----
-// SID voice 1 is a noise generator routed through the low-pass filter.
-// A swoosh is triggered by every wall bounce and ball-to-ball hit.
-// When a swoosh is triggered the gate opens and, over 32 frames, the filter
-// cutoff sweeps up and back down while the noise pitch slides downward.
-// Volume is kept low (4/15) so it sits in the background. A random cooldown
-// of 40..103 frames prevents the sound from becoming a constant hiss.
+// The intro has the whole SID to itself: Nightshift.sid plays on all three
+// voices, driven one tick per frame from play_intro. init_sound then zeroes
+// every register and takes voice 1 back for the sound effects, so the tune
+// does not play under the demo. For the rest of the demo:
+//
+// SID voice 1 is a triangle wave with an instant attack, a ~200 ms decay
+// and no sustain, and the filter bypassed - one plucked ping per trigger,
+// which dies on its own with no per-frame envelope work. Every wall bounce
+// and ball-to-ball hit calls trigger_ping with a pitch: PING_WALL ($24,
+// a low knock) for a wall, one of $30/$38/$40/$48 picked at random for a
+// ball-to-ball hit, so repeated hits do not sound mechanical. A PING_COOL
+// cooldown of 6 frames keeps a cluster of contacts from machine-gunning.
 //
 // VISUAL EFFECTS
 // --------------
@@ -162,8 +197,19 @@
 //   * Starfield     - 32 '.' / '*' characters are scattered over the text
 //                     screen at start-up. Every other frame one random star
 //                     is given a random shade so the field twinkles.
-//   * Impact flash  - a ball-to-ball hit flashes the background grey for a
-//                     few frames (a small table drives the fade back).
+//   * Impact spark  - a ball-to-ball hit writes a random ASCII spark
+//                     ('*', '+', a filled or hollow circle) into the text
+//                     cell at the point of contact. It cools from white
+//                     through yellow and red over SPARK_LEN frames, then
+//                     the cell's original character and color are put back
+//                     (so a star underneath survives). Four sparks can be
+//                     on screen at once.
+//   * Intro reveal  - the opening runs in multicolor bitmap mode out of
+//                     VIC bank 1, so it shares nothing with the demo's
+//                     text screen and sprites; the handoff switches the
+//                     bank, $d018 and $d016 back with DEN off, and the
+//                     balls are simply there when it comes on. See
+//                     intro.asm for the animation itself.
 //   * Color swap    - colliding balls exchange body colors, and their
 //                     trails follow. A short cooldown stops the swap
 //                     bouncing back and forth while the balls separate.
@@ -177,7 +223,8 @@
 //
 //==================================================================
 
-BasicUpstart2(start)            // emits a "10 SYS 2064" BASIC stub at $0801
+BasicUpstart2(start)            // emits a "10 SYS 8768" BASIC stub at $0801
+                                // (8768 = $2240, where the code starts)
 
 //------------------------------------------------------------------
 // VIC-II Registers
@@ -186,8 +233,11 @@ BasicUpstart2(start)            // emits a "10 SYS 2064" BASIC stub at $0801
 .label VIC_SPRITE_X         = $d000 // sprite 0 X; sprite n X is at $d000+n*2
 .label VIC_SPRITE_Y         = $d001 // sprite 0 Y; sprite n Y is at $d001+n*2
 .label VIC_SPRITE_X_MSB     = $d010 // bit n = bit 8 of sprite n's X position
+.label VIC_CONTROL1         = $d011 // bit 4 (DEN) = display enable; $1b = normal
 .label VIC_RASTER           = $d012 // current raster line (low 8 bits)
 .label VIC_SPRITE_ENABLE    = $d015 // bit n = sprite n visible
+.label VIC_CONTROL2         = $d016 // bit 4 (MCM) = multicolor; $08 = normal
+.label VIC_MEMORY_SETUP     = $d018 // video matrix (bits 7-4) / charset or bitmap
 .label VIC_SPRITE_EXPAND_Y  = $d017 // bit n = sprite n double height
 .label VIC_SPRITE_PRIORITY  = $d01b // bit n = sprite n behind background
 .label VIC_SPRITE_MULTI     = $d01c // bit n = sprite n multicolor mode
@@ -210,6 +260,9 @@ BasicUpstart2(start)            // emits a "10 SYS 2064" BASIC stub at $0801
 .label CIA1_PORT_B          = $dc01
 .label CIA1_DDR_A           = $dc02
 .label CIA1_DDR_B           = $dc03
+.label CIA2_PORT_A          = $dd00      // bits 0-1 = VIC bank select
+.label CIA2_DDR_A           = $dd02      // bits 0-1 must be outputs
+.label CIA2_ICR             = $dd0d      // NMI mask/latch
 
 //------------------------------------------------------------------
 // SID Registers (only voice 1 and the filter are used)
@@ -252,6 +305,18 @@ BasicUpstart2(start)            // emits a "10 SYS 2064" BASIC stub at $0801
 .label tvx_hi       = $2a
 .label tvy_lo       = $2e       // Y target velocity, signed 8.8
 .label tvy_hi       = $32
+// THE INTRO'S VARIABLES LIVE IN THE GAPS BETWEEN THE DEMO'S, and there are
+// no gaps left. $36-$39 is the hole in the per-ball tables - four bytes
+// between the last of them (tvy_hi, $32-$35) and anim_lo - and the intro
+// fills it exactly. It also holds $4f (between swap_cool and ptr) and
+// $52-$53 (between ptr and trail_xlo). Every byte from $02 to $72 is now
+// spoken for, so anything new needs a variable retired first, and a NEW
+// 4-ENTRY PER-BALL ARRAY MUST NOT BE PUT AT $36 - it would collide with
+// the sweep and the flying logo.
+.label paint_page   = $36       // intro: which 256-cell page the sweep is on
+.label wave_pg      = $37       // intro: high byte of the active wave field
+.label text_phase   = $38       // intro: position of the logo's glint
+.label flow_t       = $39       // intro: flying logo, horizontal sine phase
 .label anim_lo      = $3a       // spin accumulator, 8.8 (sum of velocities)
 .label anim_hi      = $3e       //   bits 3-5 of anim_hi = current frame
 
@@ -259,14 +324,18 @@ BasicUpstart2(start)            // emits a "10 SYS 2064" BASIC stub at $0801
 .label frame_count  = $44       // free-running frame counter (debug/handy)
 .label temp         = $45       // scratch, low byte of 16-bit temporaries
 .label temp2        = $46       // scratch, high byte
-.label swoosh_timer = $47       // frames left in current swoosh (0 = idle)
-.label swoosh_cool  = $48       // frames until another swoosh may start
+.label pal_phase    = $47       // intro: position in the color ramp
+.label ping_cool    = $48       // frames until another ping may be triggered
+.label pal_step     = $4d       // intro: frames between ramp steps (8 -> 1)
 .label want_sx      = $49       // collision: desired X velocity sign ($00/$ff)
 .label want_sy      = $4a       // collision: desired Y velocity sign ($00/$ff)
 .label save_x       = $4b       // collision: saved sprite index
-.label flash_timer  = $4d       // frames left in the background impact flash
+.label intro_t      = $4c       // frames left in the opening swoop (0 = done)
 .label swap_cool    = $4e       // frames until balls may swap colors again
+.label flow_t2      = $4f       // intro: flying logo, vertical sine phase
 .label ptr          = $50       // 16-bit pointer for (ptr),y access ($50/$51)
+.label spr_msb      = $52       // intro: X bit 8 bits gathered for $d010
+.label flow_t3      = $53       // intro: flying logo, ripple sine phase
 .label trail_xlo    = $54       // trail sprite X, whole pixels (4 entries)
 .label trail_xmsb   = $58       // trail sprite X, bit 8
 .label trail_y      = $5c       // trail sprite Y
@@ -282,6 +351,11 @@ BasicUpstart2(start)            // emits a "10 SYS 2064" BASIC stub at $0801
 .label evy_hi       = $6c
 .label key_shift    = $6d       // nonzero if either shift key is down
 .label key_delta    = $6e       // +1 / -1 speed change requested, 0 = none
+.label pal_tick     = $6f       // intro: countdown to the next ramp step
+.label fade_stage   = $70       // intro: how many band colors are live (0-2)
+.label vm_byte      = $71       // intro: byte filled into the video matrix
+// $72 is free again: hi-res bitmap has no color RAM, so the intro's
+// old col_byte has no job. Left unallocated rather than reused.
 
 //------------------------------------------------------------------
 // Constants
@@ -312,15 +386,38 @@ BasicUpstart2(start)            // emits a "10 SYS 2064" BASIC stub at $0801
 .label TRAIL_DELAY  = 10        // trail shows the position this many frames ago
 .label HIST_SLOTS   = 16        // ring buffer depth (power of 2, > TRAIL_DELAY)
 .label STAR_COUNT   = 32        // stars on the background (power of 2)
-.label FLASH_LEN    = 4         // impact flash length in frames
 .label SWAP_COOL    = 16        // frames between color swaps
+.label SPARK_SLOTS  = 4         // impact sparks that can be on screen at once
+.label SPARK_LEN    = 10        // frames a spark stays on screen
+
+// Sound
+.label PING_COOL    = 6         // frames between pings (stops machine-gunning)
+.label PING_WALL    = $24       // wall bounce pitch (freq high byte)
+
+// Opening sequence. The bitmap lives in VIC bank 1 ($4000-$7fff): the
+// bitmap itself at the bottom of the bank, the video matrix 8K above it.
+.label INTRO_BITMAP = $4000     // 8000 bytes, generated in intro_gfx.asm
+.label INTRO_VM     = $6000     // 1000 color cells, painted by paint_sweep
+.label INTRO_WAVE_A = $3000     // 1000 cell field values, rings  (intro_gfx)
+.label INTRO_WAVE_B = $3400     // 1000 cell field values, 1 turn (intro_gfx)
+.label INTRO_WAVE_C = $3800     // 1000 cell field values, 3 turns(intro_gfx)
+.label INTRO_WAVE_D = $3c00     // 1000 cell field values, plasma (intro_gfx)
+.label INTRO_SPR    = $6400     // 8 x 64 bytes, the flying logo (bank 1)
+.label INTRO_SPR_PTR = INTRO_SPR / $40   // = $90, the first VIC block number
+.label INTRO_SPR_PTRS = INTRO_VM + $3f8  // = $63f8, bank 1 sprite pointers
+.label INTRO_SIN    = $6600     // 256-entry sine, one period (intro_sprites)
+.label INTRO_A_LEN  = 112       // rings fade up       (~2.2 s PAL)
+.label INTRO_B_LEN  = 176       // accelerating spiral, logo flies in (~3.5 s)
+.label INTRO_F_LEN  = 224       // tight field, logo still flying (~4.5 s)
+.label INTRO_C_LEN  = 112       // tight wind-up       (~2.2 s PAL)
+.label INTRO_D_LEN  = 24        // last burst + white flash (~0.5 s PAL)
 
 // Speed control
 .label SPEED_MIN    = 1
 .label SPEED_MAX    = 16
 .label SPEED_DEFAULT = 4        // half of base speed
 .label KEY_REPEAT   = 6         // frames between repeats while a key is held
-.label BAR_COL      = 7         // screen column of the first bar cell
+.label BAR_COL      = 5         // screen column of the first bar cell
 .label BAR_LEN      = 16        // one cell per speed level
 
 //------------------------------------------------------------------
@@ -451,7 +548,11 @@ store:
 done:
 }
 
-* = $0810 "Main Code"
+// $0810 is not available any more: Nightshift.sid loads at $1000-$1d77 and
+// a PSID's player is not relocatable, so the code goes above the sprite
+// data instead. $2240-$3fff is free RAM in VIC bank 0 and the VIC never
+// fetches from it.
+* = $2240 "Main Code"
 
 //------------------------------------------------------------------
 // Entry Point - one-time setup, then falls into main_loop
@@ -459,6 +560,9 @@ done:
 start:
     sei                         // no IRQs: kernal keyboard scan etc. off
                                 // (we scan the keyboard ourselves)
+    lda #$7f                    // sei does not mask NMI: turn off every CIA 2
+    sta CIA2_ICR                // source so RUN/STOP+RESTORE cannot warm-start
+    lda CIA2_ICR                // BASIC on top of our trashed zero page
 
     // Clear the text screen to spaces so nothing but sprites is visible.
     // 1000 bytes = 4 x 256 with the last page overlapping ($06e8..$07e7),
@@ -473,19 +577,9 @@ clear_loop:
     dex
     bne clear_loop
 
-    // Seed the RNG from things that differ run to run. The xorshift
-    // generator gets stuck at zero, so a bit is forced on in each byte.
-    lda VIC_RASTER
-    ora #$01
-    sta seed
-    lda $a2                     // kernal jiffy clock, low byte
-    ora #$80
-    sta seed + 1
-
     lda #$00                    // black border and background: the stars
     sta VIC_BORDER              // and the ball colors pop against it
     sta VIC_BACKGROUND
-    sta flash_timer             // no flash in progress
     sta swap_cool               // color swap allowed
     sta key_timer               // first key press acts immediately
     lda #SPEED_DEFAULT
@@ -496,16 +590,39 @@ clear_loop:
     lda #$00
     sta CIA1_DDR_B
 
+    // The intro runs FIRST, because the SID player has zero page scratch of
+    // its own and there is no guarantee it stays clear of ours. Everything
+    // the demo needs is set up afterwards, once the tune has stopped.
+    jsr play_intro              // music + spiral bitmap, ends in text mode
+                                // with the display still off
+
+    // Seed the RNG from things that differ run to run. The xorshift
+    // generator gets stuck at zero, so a bit is forced on in each byte.
+    // Seeded after the intro, so the SID player cannot have clobbered it.
+    lda VIC_RASTER
+    ora #$01
+    sta seed
+    lda $a2                     // kernal jiffy clock, low byte
+    ora #$80
+    sta seed + 1
+
     jsr init_stars              // scatter the background stars
     jsr draw_status             // status text + speed bar on row 24
     jsr init_sprites            // VIC sprite setup, random ball state
-    jsr init_sound              // SID voice 1 as filtered noise
+    jsr init_sound              // silence the tune; voice 1 = ping SFX
+
+    lda #$1b                    // DEN on: text mode, stars and status appear
+    sta VIC_CONTROL1
+    lda #%11111111              // sprites 0-3 (balls) and 4-7 (trails) on
+    sta VIC_SPRITE_ENABLE
 
 //------------------------------------------------------------------
 // Main Loop - runs exactly once per frame (50 Hz PAL / 60 Hz NTSC)
 //
-// All work happens while the raster is in the lower border, so the VIC
-// never displays a half-updated set of sprite positions.
+// The frame's physics does not fit in the lower border, so instead of
+// racing the raster we publish the *previous* frame's positions first,
+// immediately after the line-250 sync. The VIC therefore always reads a
+// complete, consistent set of coordinates; the new ones land next frame.
 //------------------------------------------------------------------
 main_loop:
     lda #$fa                    // wait for raster line 250 (lower border)
@@ -513,13 +630,14 @@ wait_raster:
     cmp VIC_RASTER
     bne wait_raster
 
+    jsr apply_positions         // publish last frame's result, atomically
+    jsr check_exit              // RUN/STOP quits the demo
     jsr update_input            // keyboard: change speed level
     jsr update_sprites          // physics, edges, animation frame
     jsr check_collisions        // ball-to-ball contact, push apart
     jsr update_trails           // record history, fetch delayed positions
-    jsr apply_positions         // copy ball + trail positions to the VIC
-    jsr update_effects          // impact flash, twinkling stars
-    jsr update_sound            // advance swoosh envelope/filter sweep
+    jsr update_effects          // impact sparks, twinkling stars
+    jsr update_sound            // age the ping cooldown
     inc frame_count
 
     // Guard against running twice in one frame: if the update ever
@@ -531,6 +649,54 @@ wait_leave:
     beq wait_leave
 
     jmp main_loop
+
+//------------------------------------------------------------------
+// The opening sequence lives in its own files: intro.asm is the code
+// (music + spiral bitmap + the handoff to text mode), intro_gfx.asm
+// generates the bitmap at assembly time, music.asm imports the tune.
+// play_intro is called once from start, before anything else is set up.
+//------------------------------------------------------------------
+#import "intro.asm"
+
+
+intro_flash:                    // phase D white-out, indexed by intro_t,
+    .byte $01, $01, $0f, $0f    // so it reads 7 -> 1: cyan, light blue,
+    .byte $0e, $0e, $03, $03    // light grey, white. Entry 0 is unreachable.
+
+//------------------------------------------------------------------
+// check_exit - RUN/STOP ends the demo (the repo-wide demo exit key)
+//
+// RUN/STOP is row 7 ($7f on port A), column bit 7, active low like every
+// other key. Because the demo runs with interrupts off and has written
+// all over BASIC's zero page, there is nothing sane to return to: the
+// clean exit is to silence the hardware and jump through the kernal
+// RESET vector at $fffc, which gives a normal READY. prompt.
+//------------------------------------------------------------------
+check_exit:
+    lda #$7f
+    sta CIA1_PORT_A
+    lda CIA1_PORT_B
+    and #$80
+    beq exit_demo               // active low: bit clear = pressed
+    lda #$ff                    // deselect all rows again
+    sta CIA1_PORT_A
+    rts
+
+exit_demo:
+    lda #$00
+    ldx #$18                    // silence all 25 SID registers
+ed_loop:
+    sta SID_BASE, x
+    dex
+    bpl ed_loop
+    sta VIC_SPRITE_ENABLE       // A is still 0: all sprites off
+    lda #$1b                    // display on (we may be exiting the intro)
+    sta VIC_CONTROL1
+    lda #$ff
+    sta CIA1_PORT_A
+                                // no cli: $fffc does sei itself, and an IRQ
+                                // taken here would run on trashed zero page
+    jmp ($fffc)                 // kernal RESET vector -> clean BASIC
 
 //------------------------------------------------------------------
 // init_sprites - VIC setup and random starting state for all 4 balls
@@ -739,7 +905,7 @@ update_done:
 // Flip the velocity on that axis. If the *target* still points into the
 // wall the easing would immediately drag the ball back, so flip the
 // target too when its sign disagrees with the new velocity. Fraction is
-// zeroed so the clamped position is exact. Each bounce fires a swoosh
+// zeroed so the clamped position is exact. Each bounce fires a low ping
 // (throttled by the sound cooldown).
 //------------------------------------------------------------------
 reverse_x:
@@ -751,7 +917,8 @@ reverse_x:
     bpl rx_done
     Negate16(tvx_lo, tvx_hi)
 rx_done:
-    jmp trigger_swoosh          // tail call
+    lda #PING_WALL
+    jmp trigger_ping            // tail call
 
 reverse_y:
     lda #$00
@@ -762,7 +929,8 @@ reverse_y:
     bpl ry_done
     Negate16(tvy_lo, tvy_hi)
 ry_done:
-    jmp trigger_swoosh          // tail call
+    lda #PING_WALL
+    jmp trigger_ping            // tail call
 
 //------------------------------------------------------------------
 // new_heading - pick the random heading for sprite X (start-up only)
@@ -926,6 +1094,7 @@ ut_fetch:
 set_trail_color:
     sty temp2
     lda VIC_SPRITE_COLOR, x
+    and #$0f                    // VIC color regs read back as $Fn
     tay
     lda dark_colors, y
     sta VIC_SPRITE_COLOR + 4, x
@@ -1108,20 +1277,53 @@ dsb_color:
     rts
 
 //------------------------------------------------------------------
-// update_effects - once per frame: swap cooldown, impact flash, twinkle
+// update_effects - once per frame: swap cooldown, impact sparks, twinkle
+//
+// Each live spark slot is redrawn every frame so its color can cool from
+// white down through yellow and red. On the last frame the cell is put
+// back the way it was found, so a star underneath a spark survives.
 //------------------------------------------------------------------
 update_effects:
-    //---- Impact flash: fade the background back to black ----
     lda swap_cool
-    beq ue_flash_check
+    beq ue_sparks
     dec swap_cool
-ue_flash_check:
-    lda flash_timer
-    beq ue_stars
-    dec flash_timer
-    ldx flash_timer
-    lda flash_colors, x
-    sta VIC_BACKGROUND
+
+    //---- Impact sparks: redraw, cool down, then erase ----
+ue_sparks:
+    ldx #SPARK_SLOTS - 1
+ue_spark_loop:
+    lda spark_timer, x
+    beq ue_spark_next           // slot idle
+    dec spark_timer, x
+    lda spark_lo, x             // screen cell for this spark
+    sta ptr
+    lda spark_hi, x
+    ora #>SCREEN_RAM
+    sta ptr + 1
+    ldy spark_timer, x
+    beq ue_spark_erase
+    lda spark_glyph, x          // still burning: glyph + this frame's shade
+    sta temp
+    lda spark_ramp, y
+    sta temp2
+    jmp ue_spark_put
+ue_spark_erase:
+    lda spark_char_save, x      // burnt out: restore what was underneath
+    sta temp
+    lda spark_color_save, x
+    sta temp2
+ue_spark_put:
+    ldy #$00
+    lda temp
+    sta (ptr), y
+    lda spark_hi, x             // same offset in color RAM
+    ora #>COLOR_RAM
+    sta ptr + 1
+    lda temp2
+    sta (ptr), y
+ue_spark_next:
+    dex
+    bpl ue_spark_loop
 
     //---- Twinkle one random star every other frame ----
 ue_stars:
@@ -1172,8 +1374,8 @@ cc_next_outer:
 // Computes dx = A.x - B.x (16-bit, since X is 9 bits) and dy = A.y - B.y,
 // remembers their signs in want_sx/want_sy (the direction A should move
 // to get away from B), then applies the distance test from the header.
-// On contact: push both balls apart, fire a swoosh, and (unless a swap
-// happened recently) swap the two body colors and start the impact flash.
+// On contact: push both balls apart, fire a ping, and (unless a swap
+// happened recently) swap the two body colors and throw off a spark.
 //
 // Note: "lda x_lo, y" assembles as absolute,Y ($0006,Y) because the
 // 6502 has no zero-page,Y mode for lda - it works, just 1 byte longer.
@@ -1237,17 +1439,19 @@ cp_dy_abs:
     jsr push_ball
     ldx save_x                  // restore X = A for the caller's loop
 
-    jsr trigger_swoosh
+    jsr get_random              // hit pitch: $30 / $38 / $40 / $48
+    and #$18
+    clc
+    adc #$30
+    jsr trigger_ping
 
-    //---- Impact effects: swap body colors and flash the background ----
+    //---- Impact effects: swap body colors and throw off a spark ----
     // Balls overlap for a few frames while separating; the cooldown
     // makes sure the swap happens once per contact, not every frame.
     lda swap_cool
     bne cp_done
     lda #SWAP_COOL
     sta swap_cool
-    lda #FLASH_LEN
-    sta flash_timer
     lda VIC_SPRITE_COLOR, x
     sta temp
     lda VIC_SPRITE_COLOR, y
@@ -1259,6 +1463,7 @@ cp_dy_abs:
     tax
     jsr set_trail_color         // trail B follows B's new color
     ldx save_x
+    jsr spawn_spark             // ASCII spark at the point of contact
 cp_done:
     rts
 
@@ -1294,11 +1499,144 @@ pb_tvy_ok:
     rts
 
 //------------------------------------------------------------------
+// spawn_spark - drop an ASCII spark on the text screen where two balls hit
+//
+// Called from check_pair with X = ball A and Y = ball B, and preserves
+// both (the collision loop still needs them). The spark cell is the
+// midpoint of the two ball centers, converted from sprite coordinates to
+// a text cell: the ball's center sits 12 px right of and 10 px below the
+// sprite position, the display starts at sprite X 24 / Y 50, so
+//     column = (mx + 12 - 24) / 8 = (mx - 12) / 8
+//     row    = (my + 10 - 50) / 8 = (my - 40) / 8
+// Row is 1..22 for any legal ball position, so a spark can never land on
+// the status row. The glyph is random; the cell's old character and color
+// are saved so update_effects can put them back.
+//------------------------------------------------------------------
+spawn_spark:
+    stx spark_ball_a
+    sty spark_ball_b
+
+    //---- mx = (A.x + B.x) / 2, then column = (mx - 12) / 8 ----
+    ldy spark_ball_a
+    lda x_lo, y
+    ldy spark_ball_b
+    clc
+    adc x_lo, y
+    sta temp
+    ldy spark_ball_a
+    lda x_msb, y
+    ldy spark_ball_b
+    adc x_msb, y
+    sta temp2                   // 16-bit sum, at most $0284
+    lsr temp2
+    ror temp                    // >> 1: temp/temp2 = mx
+    sec
+    lda temp
+    sbc #12
+    sta temp
+    lda temp2
+    sbc #$00
+    sta temp2
+    lsr temp2
+    ror temp                    // >> 3: temp = column 0..38
+    lsr temp2
+    ror temp
+    lsr temp2
+    ror temp
+
+    //---- my = (A.y + B.y) / 2, then row = (my - 40) / 8 ----
+    ldy spark_ball_a
+    lda y_pix, y
+    ldy spark_ball_b
+    clc
+    adc y_pix, y
+    sta temp2
+    lda #$00
+    rol                         // carry (bit 8 of the sum) into A
+    lsr                         // and back out into carry
+    ror temp2                   // >> 1: temp2 = my
+    lda temp2
+    sec
+    sbc #40
+    lsr
+    lsr
+    lsr                         // row 1..22
+    tay
+
+    //---- cell offset = row * 40 + column, in temp (low) / temp2 (page) ----
+    lda row_offset_lo, y
+    clc
+    adc temp
+    sta temp
+    lda row_offset_hi, y
+    adc #$00
+    sta temp2
+
+    //---- If a spark is already burning on this cell, re-arm that slot.
+    // Taking a second slot would save the first spark's glyph as the
+    // "original" contents and leave it on screen for good.
+    ldx #SPARK_SLOTS - 1
+ss_match:
+    lda spark_timer, x
+    beq ss_match_next
+    lda spark_lo, x
+    cmp temp
+    bne ss_match_next
+    lda spark_hi, x
+    cmp temp2
+    beq ss_arm
+ss_match_next:
+    dex
+    bpl ss_match
+
+    ldx #SPARK_SLOTS - 1        // otherwise take a free slot, newest first
+ss_find:
+    lda spark_timer, x
+    beq ss_found
+    dex
+    bpl ss_find
+    jmp ss_exit                 // all four still burning: skip this one
+ss_found:
+    lda temp
+    sta spark_lo, x
+    lda temp2
+    sta spark_hi, x             // page 0..3 of the screen
+
+    lda spark_lo, x             // remember what was in the cell
+    sta ptr
+    lda spark_hi, x
+    ora #>SCREEN_RAM
+    sta ptr + 1
+    ldy #$00
+    lda (ptr), y
+    sta spark_char_save, x
+    lda spark_hi, x
+    ora #>COLOR_RAM
+    sta ptr + 1
+    lda (ptr), y
+    sta spark_color_save, x
+
+ss_arm:
+    jsr get_random              // random glyph (preserves X and Y)
+    and #$03
+    tay
+    lda spark_chars, y
+    sta spark_glyph, x
+    lda #SPARK_LEN
+    sta spark_timer, x          // update_effects draws it from here on
+ss_exit:
+    ldx spark_ball_a
+    ldy spark_ball_b
+    rts
+
+//------------------------------------------------------------------
 // Sound
 //------------------------------------------------------------------
 
-// init_sound - silence the SID, then configure voice 1 as a noise source
-// through the low-pass filter with a slow attack and long release.
+// init_sound - silence the SID, then configure voice 1 as a plucked ping:
+// a triangle wave with an instant attack, a ~200 ms decay and no sustain,
+// so every trigger is one short bell-like hit that dies on its own. The
+// filter is bypassed; only the pitch changes from hit to hit.
 init_sound:
     ldx #$18                    // zero all 25 SID registers
     lda #$00
@@ -1306,88 +1644,43 @@ clear_sid:
     sta SID_BASE, x
     dex
     bpl clear_sid
-    sta swoosh_timer
-    sta swoosh_cool
+    sta ping_cool
 
-    lda #$98                    // attack 9 (~250 ms), decay 8 (~300 ms)
+    lda #$06                    // attack 0 (instant), decay 6 (~200 ms)
     sta SID_V1_AD
-    lda #$09                    // sustain 0, release 9 (~750 ms tail)
+    lda #$00                    // sustain 0, release 0: the decay is the whole note
     sta SID_V1_SR
-    lda #$a1                    // resonance 10 (hi nibble), filter voice 1 (bit 0)
-    sta SID_FILTER_RES
-    lda #$14                    // bit 4 = low-pass, volume 4 of 15 (quiet)
+    sta SID_FILTER_RES          // no resonance, voice 1 not routed to the filter
+    sta SID_V1_FREQ_LO          // pitch is set per hit via the high byte only
+    lda #$0c                    // filter off, volume 12 of 15
     sta SID_VOLUME
-    lda #$00
-    sta SID_FILTER_LO           // cutoff low bits unused; we sweep the high byte
     rts
 
-// trigger_swoosh - start a swoosh unless one is playing or cooling down.
-// Uses only A, so callers can keep X = sprite index.
-trigger_swoosh:
-    lda swoosh_timer
-    bne ts_done                 // already playing
-    lda swoosh_cool
-    bne ts_done                 // too soon after the last one
-
-    lda #$80                    // noise waveform, gate OFF: resets envelope
-    sta SID_V1_CONTROL
-    lda #$81                    // noise waveform, gate ON: attack starts
-    sta SID_V1_CONTROL
-    lda #32                     // swoosh lasts 32 frames (~0.6 s)
-    sta swoosh_timer
-    jsr get_random              // cooldown 40..103 frames after this one
-    and #$3f
-    clc
-    adc #40
-    sta swoosh_cool
-ts_done:
-    rts
-
-// update_sound - called once per frame.
-//
-// While a swoosh is active (timer t counts 31 down to 0):
-//   * filter cutoff rises for the first 16 frames, falls for the last 16
-//     (a triangle: $18 -> $54 -> $18), which gives the "sweep" character
-//   * noise pitch slides down from $56 to $18 for a passing-by feel
-//   * the gate is released with 12 frames left so the release tail
-//     overlaps the end of the sweep instead of cutting off abruptly
-update_sound:
-    lda swoosh_cool             // tick the cooldown
-    beq us_check
-    dec swoosh_cool
-us_check:
-    lda swoosh_timer
-    beq us_done                 // idle
-    dec swoosh_timer
-
-    lda swoosh_timer            // t = 31..0
-    cmp #16
-    bcc us_falling
-    eor #$1f                    // rising half: (31 - t) * 4 + $18
-    asl
-    asl
-    clc
-    adc #$18
-    jmp us_set_cutoff
-us_falling:
-    asl                         // falling half: t * 4 + $18
-    asl
-    clc
-    adc #$18
-us_set_cutoff:
-    sta SID_FILTER_HI
-
-    lda swoosh_timer            // pitch = t * 2 + $18, slides downward
-    asl
-    clc
-    adc #$18
+// trigger_ping - hit A on voice 1, unless a ping is still cooling down.
+// A = frequency high byte (higher = brighter ping). Uses only A and the
+// scratch byte, so callers can keep X = ball A and Y = ball B.
+trigger_ping:
+    sta ping_pitch
+    lda ping_cool
+    bne tp_done                 // too soon after the last one
+    lda ping_pitch
     sta SID_V1_FREQ_HI
-
-    lda swoosh_timer
-    cmp #12
-    bne us_done
-    lda #$80                    // gate off: begin release phase
+    lda #$10                    // triangle, gate OFF: resets the envelope
     sta SID_V1_CONTROL
+    lda #$11                    // triangle, gate ON: instant attack, then decay
+    sta SID_V1_CONTROL
+    lda #PING_COOL
+    sta ping_cool
+tp_done:
+    rts
+
+// update_sound - called once per frame. The ping's envelope runs in the
+// SID itself (instant attack, short decay, no sustain), so the only thing
+// left to do per frame is age the cooldown that spaces the hits out.
+update_sound:
+    lda ping_cool
+    beq us_done
+    dec ping_cool
 us_done:
     rts
 
@@ -1425,12 +1718,33 @@ dark_colors:                    // darker shade of each C64 color, for trails
     .byte $09, $00, $02, $00    // org->brn  brn->blk   lred->red  dgry->blk
     .byte $0b, $05, $06, $0c    // gry->dgry lgrn->grn  lblu->blu  lgry->gry
 
-flash_colors:                   // background during the impact flash,
-    .byte $00, $0b, $0b, $0c    // indexed by flash_timer after the dec
+spark_chars:                    // random spark glyph: * + filled/hollow circle
+    .byte $2a, $2b, $51, $57
+
+spark_ramp:                     // spark color by frames left (index 0 unused):
+    .byte $00, $0b, $09, $02    // dgry, brown, red ...
+    .byte $08, $08, $07, $07    // ... orange, yellow ...
+    .byte $01, $01              // ... white at the moment of impact
+
+// Screen offset of each text row, so spawn_spark can do row * 40 without
+// a multiply. 25 rows, though only 1..22 can ever hold a spark.
+row_offset_lo:  .fill 25, (i * 40) & $ff
+row_offset_hi:  .fill 25, (i * 40) >> 8
+
+// Impact spark slots: cell offset, saved contents, glyph, frames left
+spark_lo:         .fill SPARK_SLOTS, 0
+spark_hi:         .fill SPARK_SLOTS, 0
+spark_char_save:  .fill SPARK_SLOTS, 0
+spark_color_save: .fill SPARK_SLOTS, 0
+spark_glyph:      .fill SPARK_SLOTS, 0
+spark_timer:      .fill SPARK_SLOTS, 0
+spark_ball_a:     .byte 0       // X and Y saved across spawn_spark
+spark_ball_b:     .byte 0
+ping_pitch:       .byte 0       // trigger_ping's argument
 
 .encoding "screencode_upper"
 status_text:                    // 40 columns; the bar is filled in by code
-    .text "SPEED [                ] CRSR UP/DN +/- "
+    .text "SPD [                ] +/- CRSR STOP=END"
 
 twinkle_colors:                 // random star shades (mostly dim)
     .byte $0b, $0c, $0f, $01, $0c, $0b, $0e, $0c
@@ -1445,87 +1759,16 @@ star_lo:    .fill STAR_COUNT, 0
 star_hi:    .fill STAR_COUNT, 0
 
 //------------------------------------------------------------------
-// Sprite Data - 8 shaded sphere frames, generated at assembly time
-//
-// Instead of hand-drawn bitmaps, a KickAssembler script ray-shades a
-// sphere. For every frame f the light direction rotates by f * 45
-// degrees around the viewing axis. For every pixel:
-//
-//   1. Is it inside the circle? (distance from center < RADIUS)
-//   2. If so, compute the sphere's surface normal at that point:
-//        n = (dx/R, dy/R, sqrt(1 - dx^2/R^2 - dy^2/R^2))
-//   3. Lambert shading: brightness = n . light
-//   4. Threshold the brightness into 3 tones: highlight / body / shadow
-//
-// Multicolor sprites are 12 "wide pixels" x 21 lines (each wide pixel is
-// 2 screen pixels), so dx uses (col*2 + 1) to get the pixel center in
-// real pixels. Bit pairs, leftmost pixel in the top bits:
-//   00 = transparent
-//   01 = $d025  highlight (white)
-//   10 = $d027+n sprite body color
-//   11 = $d026  shadow (dark grey)
-//
-// Each frame is 63 bytes (21 rows x 3 bytes) plus 1 pad byte = 64 bytes,
-// which is the VIC's sprite block size.
+// Sprite graphics - 8 shaded ball frames at $2000 + 1 trail disc at $2200,
+// both generated at assembly time. Kept in their own file because they are
+// pure data generation with no connection to the demo's logic or zero page.
 //------------------------------------------------------------------
-* = SPRITE_DATA "Sprite Data"
-
-.const RADIUS   = 10.2          // ~20 px wide, 21 lines tall
-.const CENTER_X = 12.0          // pixel center of a 24 px wide sprite
-.const CENTER_Y = 10.5          // line center of a 21 line sprite
-
-.for (var f = 0; f < 8; f++) {
-    .var angle = f * 2 * PI / 8         // light rotates 45 deg per frame
-    .var lx = cos(angle) * 0.55         // in-plane light components
-    .var ly = sin(angle) * 0.55
-    .var lz = 0.83                      // toward the viewer (keeps center lit)
-    .for (var row = 0; row < 21; row++) {
-        .var bits = 0                   // 24-bit row, built pair by pair
-        .for (var col = 0; col < 12; col++) {
-            .var dx = (col * 2 + 1) - CENTER_X
-            .var dy = (row + 0.5) - CENTER_Y
-            .var d = sqrt(dx * dx + dy * dy)
-            .var pair = 0               // default: transparent
-            .if (d < RADIUS) {
-                .var nx = dx / RADIUS
-                .var ny = dy / RADIUS
-                .var nz = sqrt(1.0 - nx * nx - ny * ny)
-                .var lit = nx * lx + ny * ly + nz * lz
-                .if (lit > 0.93) {
-                    .eval pair = %01     // highlight
-                } else .if (lit < 0.22) {
-                    .eval pair = %11     // shadow
-                } else {
-                    .eval pair = %10     // body
-                }
-            }
-            .eval bits = bits | (pair << ((11 - col) * 2))
-        }
-        .byte (bits >> 16) & $ff, (bits >> 8) & $ff, bits & $ff
-    }
-    .byte 0                             // pad to 64 bytes
-}
+#import "sprite_gen.asm"
 
 //------------------------------------------------------------------
-// Trail Sprite - one solid hi-res disc, slightly smaller than the ball
-//
-// Hi-res sprites are 24 x 21 one-bit pixels: bit set = sprite color
-// ($d027+n), clear = transparent. The disc peeks out from behind the
-// ball as it moves, so it only needs to be roughly ball-sized.
+// The intro tune (PSID, loads at its own $1000) and the intro's spiral
+// bitmap (8000 bytes at $4000, in VIC bank 1). Both are data only.
 //------------------------------------------------------------------
-* = TRAIL_DATA "Trail Sprite"
-
-.const TRAIL_RADIUS = 9.2
-
-.for (var row = 0; row < 21; row++) {
-    .var bits = 0
-    .for (var col = 0; col < 24; col++) {
-        .var dx = (col + 0.5) - CENTER_X
-        .var dy = (row + 0.5) - CENTER_Y
-        .if (sqrt(dx * dx + dy * dy) < TRAIL_RADIUS) {
-            .eval bits = bits | (1 << (23 - col))
-        }
-    }
-    .byte (bits >> 16) & $ff, (bits >> 8) & $ff, bits & $ff
-}
-.byte 0                                 // pad to 64 bytes
+#import "music.asm"
+#import "intro_gfx.asm"
+#import "intro_sprites.asm"
