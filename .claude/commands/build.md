@@ -8,7 +8,9 @@ Find the project's main source file. Prefer `main.asm`; if the project has no `m
 java -jar /Applications/KickAssembler/KickAss.jar <source>.asm -odir bin 2>&1 | tee bin/buildlog.txt | grep -vE '^//|^parsing$|^flex pass|^Output pass$|^Output dir:|^$|^ +(Music:|init |\$)'
 ```
 
-The global `/Applications/KickAssembler/KickAss.cfg` is empty (no `-showmem`, no `-symbolfile`), and the grep strips the banner and pass lines, so a clean build prints only `Writing prg file: <name>.prg`; anything else printed is an error or warning. The full unfiltered output is always in `bin/buildlog.txt`. Never add `-showmem`, `-symbolfile`, `-debug` or `-bytedump` unless asked for that one build.
+`/Applications/KickAssembler/KickAss.cfg` is read automatically on every build (it sits beside `KickAss.jar`); it sets only `-libdir .`, and command-line options override it, so `-odir bin` always wins. It deliberately has no `-showmem` and no `-symbolfile`. The grep strips the banner and pass lines, so a clean build prints only `Writing prg file: <name>.prg` — plus any deliberate `.print` output from the source itself (`spritemove` prints three lines about the imported tune). Anything else is an error or warning.
+
+If a build suddenly fails with `Inputfile '-something' doesn't exist` or `Already have an inputfile`, check that cfg first: its options take a value after a SPACE (`-libdir .`), and `-libdir=.` or `-output-dir=.` are both parsed as filenames. The full unfiltered output is always in `bin/buildlog.txt`. Never add `-showmem`, `-symbolfile`, `-debug` or `-bytedump` unless asked for that one build.
 
 Output is `bin/<source>.prg` (KickAssembler names it after the source file). Do not pass `-symbolfile`.
 

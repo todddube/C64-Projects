@@ -129,8 +129,8 @@
 .label RB_COUNT     = 8         // bars
 .label RB_H         = 12        // lines in one bar
 .label RB_STRIPS    = 4         // colour strips to pick from
-.label RB_LABELS    = 6
-.label RB_STEPS     = 8         // steps in rb_script
+.label RB_LABELS    = 7
+.label RB_STEPS     = 9         // steps in rb_script
 .label RB_BAND_TOP  = 205       // the closing wipe's border slot, in the TAIL
 .label RB_BAND_BOT  = 248       // of the frame - the only place a paint_sweep
 .label RB_BAND_H    = RB_BAND_BOT - RB_BAND_TOP + 1   // frame has room for it
@@ -698,15 +698,17 @@ rbd_late:
 //   gmode  0 fixed amplitude, 1 squeeze shut, 2 open out
 //   gdiv   frames between gsh steps while gmode is 1 or 2
 //
-// 440 frames, about 8.8 seconds PAL. It opens on an explosion out of a
+// 480 frames, about 9.6 seconds PAL. It opens on an explosion out of a
 // single line and closes on the implosion back into one, so the overture
-// is bracketed by the same move played both ways.
+// is bracketed by the same move played both ways. The second-to-last
+// step is a quiet beat of its own for the music credit, after the date
+// and before the close - everything else has already had its turn.
 //------------------------------------------------------------------
-rs_mode:  .byte    4,  0,  1,  3,  0,  2,  1,    4
-rs_len:   .byte   40, 72, 56, 72, 48, 56, 48,   48
-rs_lab:   .byte $ff,  0,  1,  2,  3,  4,  5,  $ff
-rs_gmode: .byte    2,  0,  0,  0,  0,  0,  0,    1
-rs_gdiv:  .byte    5,  0,  0,  0,  0,  0,  0,    6
+rs_mode:  .byte    4,  0,  1,  3,  0,  2,  1,  2,    4
+rs_len:   .byte   40, 72, 56, 72, 48, 56, 48, 40,   48
+rs_lab:   .byte $ff,  0,  1,  2,  3,  4,  5,  6,  $ff
+rs_gmode: .byte    2,  0,  0,  0,  0,  0,  0,  0,    1
+rs_gdiv:  .byte    5,  0,  0,  0,  0,  0,  0,  0,    6
 
 //------------------------------------------------------------------
 // The colour strips. Twelve lines each, dark at the edges and bright in
@@ -786,7 +788,7 @@ rb_modes:
 // The labels: six rows of 40 screen codes, already centred, so putting
 // one up is a straight 40-byte copy with no column arithmetic.
 //------------------------------------------------------------------
-lab_row:    .byte  4,  7, 11, 14, 17, 20
+lab_row:    .byte  4,  7, 11, 14, 17, 20, 21
 lab_src_lo: .fill RB_LABELS, <(lab_text + i * 40)
 lab_src_hi: .fill RB_LABELS, >(lab_text + i * 40)
 
@@ -800,6 +802,9 @@ lab_ramp:
     .byte $00, $0b, $05, $0d, $0f, $01, $0d, $0d    // 3 strapline -> lt green
     .byte $00, $06, $04, $0e, $0f, $01, $03, $03    // 4 strapline -> cyan
     .byte $00, $06, $04, $0a, $0f, $01, $0f, $0f    // 5 date      -> lt grey
+    .byte $00, $0b, $0b, $0c, $0c, $0f, $0c, $0c    // 6 music credit -> grey,
+                                                     // never brighter than
+                                                     // mid grey - see below
 
 .encoding "screencode_upper"
 lab_text:
@@ -809,6 +814,18 @@ lab_text:
     .text "         E I G H T   B A L L S          "
     .text "          O N E   R A S T E R           "
     .text "           2 0 2 6   V 1 . 0            "
+    .text "     MUSIC BY ARI YLIAHO (AGEMIXER)     "
+// Row 21's credit is the one label that is NOT letter-spaced like the six
+// above it - every other row runs its text "R E T R O..." with a blank
+// between each glyph, doubling its effective width. There is no smaller
+// font in text mode without a whole second character set (every glyph
+// the OTHER six labels use would have to be duplicated into it just to
+// keep rendering at all, since $d018 selects one charset for the entire
+// screen) - not a fair trade for one credit line. Dropping the letter-
+// spacing and keeping the colour a flat, capped grey instead does the
+// same job at essentially zero cost: dense against the labels' open
+// tracking, and dim against their white/yellow/cyan peaks, it reads as
+// smaller and quieter without a single pixel actually changing size.
 
 //------------------------------------------------------------------
 // State. All of it absolute rather than zero page: the only thing here

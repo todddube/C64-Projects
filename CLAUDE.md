@@ -50,6 +50,14 @@ and works the checklist over changed assembly. It reads and builds but never edi
 after writing or changing C64 assembly, or when a demo misbehaves (garbage graphics, IRQ
 lockup, silent SID, crash on exit).
 
+`.claude/skills/` holds five `6502-*` skills (instruction set, memory map, Merlin, SWEET16,
+6502-to-Rust) as **symlinks into the sibling repo `~/Documents/Github/6502-skills`**
+(github.com/sunsided/6502-skills). Only `6502-instruction-set` and `6502-memory-map` are
+C64-relevant; the rest are Apple II / porting oriented. The symlinks are absolute paths, so
+they are deliberately **not** committed — `git pull` in the sibling repo updates all five,
+and `./install.sh --to <repo>/.claude/skills` recreates them if the repo moves. For a
+machine-wide install instead, run `./install.sh --claude` there.
+
 ## Build Commands
 
 ### Local Development (macOS)
@@ -66,18 +74,30 @@ java -jar /Applications/KickAssembler/KickAss.jar main.asm -odir bin -o projectn
 
 # Minimal-output build (the standard form used here):
 java -jar /Applications/KickAssembler/KickAss.jar main.asm -odir bin 2>&1 | tee bin/buildlog.txt | grep -vE '^//|^parsing$|^flex pass|^Output pass$|^Output dir:|^$|^ +(Music:|init |\$)'
-# A clean build prints exactly one line: "Writing prg file: main.prg".
-# Anything else is an error/warning. Full output is kept in bin/buildlog.txt.
+# A clean build normally prints exactly one line: "Writing prg file: main.prg".
+# Anything else is an error/warning - EXCEPT deliberate .print output from the
+# source. spritemove/music.asm prints three lines (the tune's name and its
+# load/init/play addresses) on every build; that is intentional, not a warning.
+# Full output is kept in bin/buildlog.txt.
 # The last alternative in the grep strips KickAssembler's PSID import
 # banner ("Music: ...", the load range, "init/play"), which a project that
 # #imports a .sid prints on a SUCCESSFUL build - without it, spritemove
 # looks like it emitted three warnings every time.
 #
-# /Applications/KickAssembler/KickAss.cfg is deliberately EMPTY: no -showmem
-# (memory map), no -symbolfile (.sym), no -debug (.dbg). Never add those by
-# default; pass one on the command line only for a single build that needs it
-# (e.g. -symbolfile for a Regenerator/VICE-monitor session, -showmem to check
-# segment placement).
+# /Applications/KickAssembler/KickAss.cfg is read AUTOMATICALLY on every build,
+# because it sits beside KickAss.jar - nothing has to point at it. It currently
+# sets only "-libdir .". Command-line options are applied after it, so "-odir
+# bin" always wins.
+#
+# Options in that file take their value after a SPACE. "-libdir=." is NOT
+# valid: Kick Assembler parses it as a filename and the build dies with
+# "Inputfile '-libdir=.' doesn't exist" or "Already have an inputfile". There
+# is no "-output-dir" option either - it is "-odir".
+#
+# Deliberately NOT in the cfg: -showmem (memory map), -symbolfile (.sym),
+# -debug (.dbg), -bytedump. Never add those by default; pass one on the command
+# line only for a single build that needs it (e.g. -symbolfile for a
+# Regenerator/VICE-monitor session, -showmem to check segment placement).
 
 # Run in VICE emulator (macOS arm64)
 /Applications/vice-arm64-gtk3/bin/x64sc program.prg
@@ -114,9 +134,12 @@ number of cycles in warp mode and screenshot on exit:
 /Applications/vice-arm64-gtk3/bin/x64sc -autostart bin/main.prg \
     -warp -limitcycles 14000000 -exitscreenshot /tmp/shot.png
 ```
-Autostart alone costs roughly 5M cycles (the C64 boots first), and PAL runs ~985248
-cycles/second, so `5000000 + seconds * 985248` lands on the frame you want. This is the
-fastest way to check an intro, a raster split or a color choice.
+Autostart alone costs a few million cycles before the program's first frame (the C64
+boots first — measured at ~3.2M for `spritemove`, and it grows with the `.prg` size), and
+PAL runs ~985248 cycles/second, so `3200000 + seconds * 985248` is a good first guess at
+the frame you want. This is the fastest way to check an intro, a raster split or a color
+choice. `-ntsc` does the same on an NTSC machine, where a frame is 17095 cycles rather
+than 19656.
 
 ### CI/CD
 There are **no GitHub Actions** (no `.github/workflows/`). The only pipeline is
@@ -275,17 +298,57 @@ vector. Do **not** `rts` back to BASIC: these demos overwrite `$02-$8f`, so
 BASIC will crash. Do **not** `cli` first either: `$fffc` does its own `sei`, and
 an IRQ taken in that window runs the kernal handler on the trashed zero page.
 Because `sei` does not mask NMI, `start` should also write `$7f` to `$dd0d` and
-read it back, or RUN/STOP+RESTORE will warm-start BASIC over the same memory.
+read it back. Note that this masks CIA 2's *own* NMI sources only — **it does not
+stop RESTORE**, which is wired straight to `/NMI` through a monostable. Blocking
+RUN/STOP+RESTORE properly needs the NMI vector at `$0318/$0319` pointed at an
+`rti` as well; see `.claude/c64-reference/sid-cia.md`. No demo in this repo does
+that yet.
 `/c64-new` scaffolds this routine into `main.asm`.
 
 Reference implementation: `spritemove/main.asm` (`check_exit` / `exit_demo`).
+
+### Opening the vertical border
+The VIC sets its vertical border flip-flop on the first line of the bottom
+border — 251 with RSEL=1 (`$d011` bit 3), 247 with RSEL=0. Switching to 24 rows
+while the raster is *on line 250* means the line it now waits for is already
+past, so the flip-flop is never set: no bottom border for that frame and no top
+border on the next, and sprites are displayed through both. Switch back to 25
+rows later in the frame (any time after 251) so the next frame can do it again:
+
+```assembly
+main_loop:
+    lda #$fa                    // sync on line 250
+wait_raster:
+    cmp $d012
+    bne wait_raster
+    lda #$13                    // RSEL=0: bottom border never opens
+    sta $d011
+    // ... a frame's worth of work, raster ends up well past 251 ...
+    lda #$1b                    // back to 25 rows for the next pass
+    sta $d011
+```
+
+Two things this costs you, both learned the hard way in `spritemove/`:
+- **Zero the last byte of the VIC bank** (`$3fff` in bank 0). In the opened
+  border the VIC is idle and displays *that byte*, not the screen, so whatever
+  junk it holds tiles the border.
+- **Sprites with Y < 56 get a ghost twin.** A sprite triggers when the low 8
+  bits of the raster match its Y, and PAL lines 256–311 repeat low bytes 0–55 —
+  visible once the bottom border is open. Keep sprite Y ≥ 56, which in practice
+  means you gain the bottom border, not the top.
+
+The **side** borders are a different problem: they need a cycle-exact `$d016`
+write on every raster line, i.e. a stable-raster IRQ, and that consumes most of
+the frame. Nothing in this repo does it.
 
 ### Blanking the screen (intro reveals)
 Clearing DEN (bit 4 of `$d011`, i.e. `$0b` instead of `$1b`) switches the whole
 display off — text, color RAM *and* sprites — leaving a flat sheet of border
 color. Set border and background to the same value first so nothing flickers
-when DEN comes back on. `spritemove/main.asm` (`play_intro`) uses this for a
-blue-screen opening with a SID swoop, then sets DEN and reveals the animation.
+when DEN comes back on. `spritemove/intro.asm` (`intro_to_text`) uses this for
+the handoff out of its bitmap intro: DEN goes off, the VIC bank, `$d018` and
+`$d016` are switched back to text mode, the stars and status bar are drawn into
+a screen nobody can see, and only then does DEN come back on.
 
 ## Common Patterns
 

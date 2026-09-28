@@ -1,5 +1,7 @@
 # Build all C64 projects in the repository
 
+Kick Assembler reads `/Applications/KickAssembler/KickAss.cfg` automatically on every one of these builds (it sits beside the jar). If every project suddenly fails to build, check that file before anything else — a bad option there breaks all of them at once.
+
 Find every project recursively from the repo root. A project is a directory containing `main.asm`, or a directory with no `main.asm` but exactly one top-level `.asm` file (e.g. `scroller/scroller.asm`). Build each with KickAssembler:
 
 ```

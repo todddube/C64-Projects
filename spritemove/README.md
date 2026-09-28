@@ -34,7 +34,7 @@ number of cycles in warp and screenshot on the way out:
 
 Autostart costs roughly 3.2M cycles before the intro's first frame (measured;
 it grows with the `.prg`), and PAL runs 985248 cycles a second. The overture is
-450 frames and the bitmap intro 830, so the balls appear around 28M.
+480 frames and the bitmap intro 830, so the balls appear around 28.9M.
 
 **Pass `-pal`.** A `vicerc` with `MachineVideoStandard=2` makes `x64sc` default
 to NTSC, where a line is 65 cycles over 263 raster lines — the off-screen window
@@ -86,11 +86,11 @@ same trashed zero page.
 
 ## What it does
 
-### The overture (~9 seconds)
+### The overture (~10 seconds)
 
 Before the bitmap intro there is a raster bar sequence in plain text mode:
-eight colour bars flying over a black screen while the handle and five labels
-fade up one at a time. See `intro_raster.asm`.
+eight colour bars flying over a black screen while the handle, five labels
+and a closing music credit fade up one at a time. See `intro_raster.asm`.
 
 There is no per-cell work in it at all. Everything is one byte per **raster
 line** in a page-aligned buffer at `$0900`, and a frame is two halves that
@@ -127,10 +127,17 @@ for each of the eight bars — so the behaviour is entirely in the numbers:
 | CHAOS | Eight speeds (1,2,3,5,7,4,6,9) about eight centres — no two bars ever repeat the same relationship |
 | IMPLODE | One speed, `gsh` driven 0→7 or 7→0: the bars converge into one thick bar or erupt out of it |
 
-The script runs eight steps of them, opening on an explosion out of a single
+The script runs nine steps of them, opening on an explosion out of a single
 line and closing on the implosion back into one, so the overture is bracketed
-by the same move played both ways. It ends on a white strobe that the labels
-vanish into, and hands over to the bitmap intro on a black screen.
+by the same move played both ways. The last step before the close is a quiet
+beat of its own for a "MUSIC BY ARI YLIAHO (AGEMIXER)" credit — the one label
+that is *not* letter-spaced like the other six, and capped to a flat grey, so
+it reads as smaller and quieter without an actual second font: there is no
+sub-8px text in C64 character mode without a full custom charset (`$d018`
+selects one charset for the whole screen, so every glyph the other labels use
+would have to be duplicated into it just for one credit line). It ends on a
+white strobe that the labels vanish into, and hands over to the bitmap intro
+on a black screen.
 
 **On raster stability.** The wait loop is `cpy $d012 / bne`, seven cycles, and a
 PAL line is 63 — exactly nine iterations, so it detects every line at the same

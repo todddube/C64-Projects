@@ -12,4 +12,6 @@ Output pass
   Music: Nightshift by Ari Yliaho (Agemixer)
     $1000-$1d77
     init $1d70  play $1003
-Writing prg file: main.prg
+
+Error: In segment 'Default' the memoryblock 'Main Code' ($2240-$30bc) overlaps 'Intro Wave A' ($3000-$33e7)
+

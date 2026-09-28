@@ -85,9 +85,26 @@ Restore the row select to `$FF` after scanning so a stuck row does not confuse l
 | `$DD02/03` | DDR A / DDR B — set bits 0-1 of DDR A to output before changing the bank |
 | `$DD04-0F` | Timers, TOD, ICR, control — same layout as CIA 1 |
 
-CIA 2 generates **NMI**, which cannot be masked by `sei`. Disable it with
-`lda #$7f : sta $dd0d : lda $dd0d` before taking over the machine, or RUN/STOP+RESTORE will
-jump into the KERNAL from under your code.
+CIA 2 generates **NMI**, which cannot be masked by `sei`. Disable its own sources with
+`lda #$7f : sta $dd0d : lda $dd0d` before taking over the machine (the write masks, the
+read acknowledges anything already latched).
+
+**That does not stop RESTORE.** The RESTORE key is not a CIA 2 interrupt source — it is
+wired to the CPU's `/NMI` line through a monostable, so no `$dd0d` value can mask it. The
+KERNAL handler at `$fe47` checks `$dd0d`, finds no CIA 2 source pending, and falls through
+to the stop-key scan; with RUN/STOP also held it jumps to BASIC's warm start, on top of
+whatever your demo has done to zero page. To actually swallow it, take the NMI vector as
+well (the KERNAL is banked in, so `$0318/$0319` is the one to use):
+
+```assembly
+    lda #<nmi_ignore
+    sta $0318
+    lda #>nmi_ignore
+    sta $0319
+    ...
+nmi_ignore:
+    rti
+```
 
 VIC bank values for `$DD00` bits 1-0: `%11` = bank 0 `$0000-$3FFF`, `%10` = bank 1
 `$4000-$7FFF`, `%01` = bank 2 `$8000-$BFFF`, `%00` = bank 3 `$C000-$FFFF`. See `vic-ii.md`.

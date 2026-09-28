@@ -344,35 +344,22 @@ BasicUpstart2(start)            // emits a "10 SYS 8768" BASIC stub at $0801
 // per ball - which is the real reason the ghost trails had to go, quite
 // apart from wanting their sprites back.
 //
-//   $02-$79  per-ball tables (8 bytes each)
-//   $7a-$94  global state (RNG, timers, scratch, speed, keyboard)
+//   $02-$95  global state (RNG, timers, scratch, speed, keyboard, ptr)
+//   BALL_STATE (absolute, not zero page)  18 per-ball tables, see below
 //
-// THE INTRO'S VARIABLES DELIBERATELY OVERLAP THE BALL TABLES. play_intro
-// runs to completion before init_sprites writes a single ball byte, so
-// the two are never live at the same time and $02-$0f does double duty.
-// The intro's live at $02-$10, plus temp/temp2. Nightshift has zero page
-// scratch of its own and we have no disassembly of it, so the evidence
-// that the two do not collide is empirical: the intro renders correctly
-// under VICE. It has never been checked on real hardware. If the tune is
-// ever swapped for another, this is the first thing to re-test.
+// THE INTRO'S OWN VARIABLES OVERLAP THIS GLOBAL BLOCK ($02-$10 plus
+// temp/temp2). play_intro runs to completion before start touches a
+// single ball byte, so the two are never live at the same time.
+// Nightshift has zero page scratch of its own and we have no
+// disassembly of it, so the evidence that the two do not collide is
+// empirical: the intro renders correctly under VICE. It has never been
+// checked on real hardware. If the tune is ever swapped for another,
+// this is the first thing to re-test.
 //------------------------------------------------------------------
-.label x_frac       = $02       // X position, fractional part (1/256 px)
-.label x_lo         = $0a       // X position, whole pixels (low 8 bits)
-.label x_msb        = $12       // X position, bit 8 (0 or 1)
-.label y_frac       = $1a       // Y position, fractional part
-.label y_pix        = $22       // Y position, whole pixels
-.label vx_lo        = $2a       // X velocity, signed 8.8, low (fraction)
-.label vx_hi        = $32       // X velocity, signed 8.8, high (whole px)
-.label vy_lo        = $3a       // Y velocity, signed 8.8
-.label vy_hi        = $42
-.label tvx_lo       = $4a       // X target velocity, signed 8.8
-.label tvx_hi       = $52
-.label tvy_lo       = $5a       // Y target velocity, signed 8.8
-.label tvy_hi       = $62
-.label anim_lo      = $6a       // spin accumulator, 8.8 (sum of velocities)
-.label anim_hi      = $72       //   bits 3-5 of anim_hi = current frame
 
-// Global state. Everything from here is written after play_intro returns.
+// Global state, all single bytes (nothing here is a per-ball array any
+// more - see BALL_STATE below for those). Everything from $7a on is
+// written after play_intro returns.
 .label seed         = $7a       // 16-bit RNG state ($7a low, $7b high)
 .label frame_count  = $7c       // free-running frame counter
 .label temp         = $7d       // scratch, low byte of 16-bit temporaries
@@ -380,9 +367,11 @@ BasicUpstart2(start)            // emits a "10 SYS 8768" BASIC stub at $0801
 .label ping_cool    = $7f       // frames until another ping may be triggered
 .label want_sx      = $80       // collision: desired X velocity sign ($00/$ff)
 .label want_sy      = $81       // collision: desired Y velocity sign ($00/$ff)
-.label save_x       = $82       // collision: saved sprite index
+.label save_x       = $82       // collision: saved ball index
 .label swap_cool    = $83       // frames until balls may swap colors again
 .label ptr          = $84       // 16-bit pointer for (ptr),y access ($84/$85)
+                                 // MUST stay zero page: indirect indexed
+                                 // addressing has no absolute form
 .label m0           = $86       // ScaleVel: 24-bit multiplicand ($86..$88)
 .label p0           = $89       // ScaleVel: 24-bit product ($89..$8b)
 .label vsign        = $8c       // ScaleVel: sign of the input velocity
@@ -394,6 +383,93 @@ BasicUpstart2(start)            // emits a "10 SYS 8768" BASIC stub at $0801
 .label evy_hi       = $92
 .label key_shift    = $93       // nonzero if either shift key is down
 .label key_delta    = $94       // +1 / -1 speed change requested, 0 = none
+.label active_balls = $95       // how many of MAX_BALLS are in play, 4..16
+
+// Sprite multiplexing scratch: sort_balls' insertion sort, apply_band's
+// per-band raster write, and the busy-wait between bands. See BALL_STATE
+// above for ball_order itself (a per-ball ARRAY, so it lives there, not
+// here - these are all single bytes).
+.label sort_i        = $96      // insertion sort: outer index i
+.label sort_j         = $97      // insertion sort: inner (shifting) index j
+.label band1_trigger  = $98      // raster line to wait for before band 1
+.label band_base      = $99      // apply_band: which ball_order slot its
+                                  // hardware sprite 0 starts at (0 or 8)
+.label band_slot      = $9a      // apply_band: hardware sprite index 0..7
+.label band_enable    = $9b      // apply_band: VIC_SPRITE_ENABLE being built
+.label band_msb       = $9c      // apply_band: VIC_SPRITE_X_MSB being built
+.label pair_a          = $9d      // check_collisions: ball A's identity,
+                                   // held across the inner loop - kept
+                                   // separate from check_pair's OWN
+                                   // save_x (which check_pair also
+                                   // happens to hold ball A in, but that
+                                   // is check_pair's internal business,
+                                   // not a contract check_collisions
+                                   // should depend on)
+
+//------------------------------------------------------------------
+// BALL_STATE - the per-ball tables, OUT of zero page.
+//
+// The VIC has 8 hardware sprites; this demo now multiplexes MAX_BALLS
+// logical balls across them with a raster split (see apply_bands). Zero
+// page has no room for that: 15 tables x 16 balls is 240 bytes, more
+// than all of $02-$FF. So these live in ordinary RAM instead, reusing
+// the intro's dead memory - it is done with all of VIC bank 1 by the
+// time a single ball byte gets written, and the CPU can read/write
+// there regardless of VIC bank (bank-switching only changes what the
+// VIC CHIP fetches, never what the CPU sees). This is the same trick
+// the zero page block above already plays with the intro's own
+// variables.
+//
+// $3000-$3fe7 (the four wave fields) looks like the obvious spot, and
+// was the first thing tried - but Main Code starts at $2240 and only
+// had about 40 bytes of headroom before $3000 even BEFORE this file's
+// sort/band routines were added, and KickAssembler hard-errors the
+// moment Main Code's own bytes reach an address intro_gfx.asm has
+// already claimed with `* = INTRO_WAVE_A`. Past the END of the intro's
+// memory instead - after intro_raster.asm's code and data, which ends
+// around $70d3 - there is nothing else in VIC bank 1 all the way to
+// $7fff: safe from Main Code's growth in either direction.
+//
+// Moving off zero page costs nothing per access: `lda table,x` is 4
+// cycles whether table is zero page or absolute (only zero-page,X is
+// special-cased by the 6502, and only for the NON-indexed forms this
+// file never uses) - one extra opcode byte, no extra cycles. `ptr`
+// above is the one table that could not move: (ptr),y has no absolute
+// form on the 6502.
+//
+// Every table is MAX_BALLS bytes, computed as an offset so raising
+// MAX_BALLS later (e.g. to try 24 balls in 3 bands) is a single-constant
+// change, not a relayout.
+//------------------------------------------------------------------
+.label MAX_BALLS    = 16        // compiled ceiling; active_balls <= this
+.label BALL_STATE   = $7200     // well past intro_raster.asm's own code
+                                 // and data, clear to $7fff - see above
+
+.label x_frac       = BALL_STATE + 0  * MAX_BALLS  // X pos, fraction (1/256 px)
+.label x_lo         = BALL_STATE + 1  * MAX_BALLS  // X pos, whole pixels (low 8)
+.label x_msb        = BALL_STATE + 2  * MAX_BALLS  // X pos, bit 8 (0 or 1)
+.label y_frac       = BALL_STATE + 3  * MAX_BALLS  // Y pos, fraction
+.label y_pix        = BALL_STATE + 4  * MAX_BALLS  // Y pos, whole pixels
+.label vx_lo        = BALL_STATE + 5  * MAX_BALLS  // X velocity, signed 8.8, lo
+.label vx_hi        = BALL_STATE + 6  * MAX_BALLS  // X velocity, signed 8.8, hi
+.label vy_lo        = BALL_STATE + 7  * MAX_BALLS  // Y velocity, signed 8.8
+.label vy_hi        = BALL_STATE + 8  * MAX_BALLS
+.label tvx_lo       = BALL_STATE + 9  * MAX_BALLS  // X target velocity, 8.8
+.label tvx_hi       = BALL_STATE + 10 * MAX_BALLS
+.label tvy_lo       = BALL_STATE + 11 * MAX_BALLS  // Y target velocity, 8.8
+.label tvy_hi       = BALL_STATE + 12 * MAX_BALLS
+.label anim_lo      = BALL_STATE + 13 * MAX_BALLS  // spin accumulator, 8.8
+.label anim_hi      = BALL_STATE + 14 * MAX_BALLS  //   bits 3-5 = current frame
+.label ball_ptr     = BALL_STATE + 15 * MAX_BALLS  // this ball's sprite-data
+                                                     // pointer (block number),
+                                                     // written to hardware
+                                                     // only when its band comes
+                                                     // up - see apply_bands
+.label ball_color   = BALL_STATE + 16 * MAX_BALLS  // this ball's body color,
+                                                     // same story
+.label ball_order   = BALL_STATE + 17 * MAX_BALLS  // ball indices, sorted
+                                                     // ascending by y_pix each
+                                                     // frame - see sort_balls
 
 // The intro's own variables, overlapping the ball tables (see above).
 .label paint_page   = $02       // which 256-cell page the sweep is on
@@ -417,7 +493,12 @@ BasicUpstart2(start)            // emits a "10 SYS 8768" BASIC stub at $0801
 //------------------------------------------------------------------
 // Constants
 //------------------------------------------------------------------
-.label NUM_SPRITES  = 8       // all eight the VIC has; see zero page
+.label HW_SPRITES   = 8       // all eight the VIC has - fixed, always this
+.label BAND_SIZE     = HW_SPRITES     // balls per raster band = hardware
+                                        // sprites; see apply_bands
+.label ACTIVE_BALLS_MIN     = 4
+.label ACTIVE_BALLS_DEFAULT = 8       // the original ball count
+.label ACTIVE_BALLS_MAX     = MAX_BALLS
 
 // $d011 bit patterns. RSEL (bit 3) picks 25 rows or 24; the main loop
 // flips it every frame to hold the vertical border open (see main_loop).
@@ -442,6 +523,11 @@ BasicUpstart2(start)            // emits a "10 SYS 8768" BASIC stub at $0801
 .label MIN_X        = 22        // left edge (ball touches border)
 .label MAX_X_LO     = 66        // right edge = 322 = $142 (MSB=1, lo=$42)
 .label MIN_Y        = 56        // top edge: the lowest Y with no ghost twin
+.label BAND1_LEAD   = 8         // lines of lead time band 1's raster wait
+                                 // gets before the topmost band-1 ball's
+                                 // own Y - apply_band costs well under a
+                                 // raster line's worth of cycles for its
+                                 // eight sprites, so this is generous
 .label MAX_Y        = 250       // bottom edge, deep in the opened border:
                                 // the disc's last row lands on line 270,
                                 // still well inside the visible picture
@@ -758,10 +844,19 @@ clear_loop:
 //------------------------------------------------------------------
 // Main Loop - runs exactly once per frame (50 Hz PAL / 60 Hz NTSC)
 //
-// The frame's physics does not fit in the lower border, so instead of
-// racing the raster we publish the *previous* frame's positions first,
-// immediately after the line-250 sync. The VIC therefore always reads a
-// complete, consistent set of coordinates; the new ones land next frame.
+// Up to MAX_BALLS logical balls are multiplexed across the VIC's 8
+// hardware sprites, in up to 2 raster bands (see apply_band). Band 0
+// publishes at the top of the frame, same timing this used to be the
+// ONLY publish at - the previous frame's physics results, so the VIC
+// always reads a complete, consistent set of coordinates and the new
+// ones land next frame. Band 1, when there is one, has to publish LATER
+// - part way down the very frame it is about to be drawn in - so the
+// bulk of the frame's CPU work (update_sprites, sort_balls) is placed
+// BETWEEN the two publishes on purpose: that work has to happen
+// sometime, and doing it while the raster is travelling from band 0's
+// balls to band 1's is exactly the same lines that would otherwise be
+// spent idle in a busy-wait. See the sprite-multiplexing plan doc for
+// the cycle-budget reasoning this is built to satisfy.
 //------------------------------------------------------------------
 main_loop:
     lda #$fa                    // wait for raster line 250 (lower border)
@@ -793,13 +888,57 @@ rs_wait:
     lda #CTRL1_25ROWS
     sta VIC_CONTROL1
 
-    jsr apply_positions         // publish last frame's result, atomically
+    // Band 0: publish last frame's TOP-of-frame balls (ball_order[0..7],
+    // lowest Y first) right at the top, same timing apply_positions
+    // always used - the raster is not due at MIN_Y for a good while yet.
+    lda #$00
+    jsr apply_band
     jsr check_exit              // RUN/STOP quits the demo
-    jsr update_input            // keyboard: change speed level
+    jsr update_input            // keyboard: speed level, ball count
+
+    // The bulk of the frame's CPU work goes HERE, between band 0's
+    // publish and band 1's - filling exactly the raster lines that have
+    // to elapse anyway for the picture to reach band 1's balls, rather
+    // than idling through them. update_sprites computes NEXT frame's
+    // positions (the usual one-frame pipeline - see the header above);
+    // sort_balls immediately re-sorts them fresh, which is also what
+    // decides band 1's trigger line below and what check_collisions
+    // sweeps after band 1 fires.
     jsr update_sprites          // physics, edges, animation frame
-    jsr check_collisions        // ball-to-ball contact, push apart
-    jsr update_effects          // impact sparks, twinkling stars
-    jsr update_sound            // age the ping cooldown
+    jsr sort_balls               // fresh ball_order for band 1 and collisions
+
+    // Band 1: only if there IS one - active_balls <= HW_SPRITES means
+    // everything fit in band 0 and there is nothing more to publish.
+    lda active_balls
+    cmp #HW_SPRITES + 1
+    bcc ml_no_band1
+
+    ldy #HW_SPRITES              // ball_order[8]: the topmost band-1 ball
+    lda ball_order, y
+    tax
+    lda y_pix, x
+    sec
+    sbc #BAND1_LEAD
+    bcs ml_trigger_ok             // no borrow: still non-negative
+    lda #MIN_Y                    // underflowed - this ball is already
+ml_trigger_ok:                    // right near the top; clamp instead
+    cmp #MIN_Y
+    bcs ml_trigger_store
+    lda #MIN_Y                    // never trigger inside the ambiguous
+ml_trigger_store:                 // low-byte range PAL lines 256-311 share
+    sta band1_trigger             // with 0-55 - see MIN_Y's own comment
+
+    lda band1_trigger
+    jsr wait_raster_a
+    lda #HW_SPRITES
+    jsr apply_band
+ml_no_band1:
+
+    // Not time-critical from here on - nothing below touches a VIC
+    // register, so it can take however long it takes, same as before.
+    jsr check_collisions         // ball-to-ball contact, push apart
+    jsr update_effects           // impact sparks, twinkling stars
+    jsr update_sound             // age the ping cooldown
     inc frame_count
 
     // Guard against running twice in one frame: if the update ever
@@ -913,19 +1052,28 @@ ed_loop:
     jmp ($fffc)                 // kernal RESET vector -> clean BASIC
 
 //------------------------------------------------------------------
-// init_sprites - VIC setup and random starting state for all 8 balls
+// init_sprites - VIC setup, plus random starting state for every ball
+// the game could ever activate.
+//
+// All MAX_BALLS are initialised here, not just active_balls of them -
+// so raising the count at run time (see update_input's B key) just
+// widens the loops that STEP and DISPLAY balls; the extra balls already
+// have valid physics state sitting there waiting, rather than needing a
+// separate "activate ball N" path that re-inits them on demand.
 //------------------------------------------------------------------
 init_sprites:
-    lda #%11111111              // all eight sprites are balls now
-    sta VIC_SPRITE_ENABLE
-    sta VIC_SPRITE_MULTI        // every one of them multicolor
+    lda #%11111111              // all eight HARDWARE sprites are always
+    sta VIC_SPRITE_ENABLE       // on - multiplexing reprograms what they
+    sta VIC_SPRITE_MULTI        // show, never how many are enabled
 
-    // Point every sprite at frame 0 before anything can be displayed.
-    // update_sprites rewrites these every frame from the spin accumulator,
-    // but it does not run until after start has enabled the display - so
-    // without this the first displayed frame draws all eight sprites from
-    // whatever block $07f8-$07ff happened to hold at load time.
-    ldx #NUM_SPRITES - 1
+    // Point every hardware sprite at frame 0 before anything can be
+    // displayed. apply_bands rewrites these every frame once a ball is
+    // assigned to that slot, but it does not run until after start has
+    // enabled the display - so without this the first displayed frame
+    // draws all eight from whatever block $07f8-$07ff held at load time.
+    // This is the 8 HARDWARE registers, not MAX_BALLS - $07f8-$07ff is
+    // always exactly 8 bytes regardless of how many balls are in play.
+    ldx #HW_SPRITES - 1
     lda #SPRITE_PTR_BASE
 init_ptrs:
     sta SPRITE_PTRS, x
@@ -933,7 +1081,7 @@ init_ptrs:
     bpl init_ptrs
 
     lda #$00
-    sta VIC_SPRITE_X_MSB        // all X < 256 until apply_positions runs
+    sta VIC_SPRITE_X_MSB        // all X < 256 until apply_bands runs
     sta VIC_SPRITE_EXPAND_X     // normal size
     sta VIC_SPRITE_EXPAND_Y
     sta VIC_SPRITE_PRIORITY     // sprites in front of background
@@ -945,15 +1093,23 @@ init_ptrs:
     lda #$0b                    // dark grey -> bit pair 11 (shadow)
     sta VIC_SPRITE_MCOLOR1
 
-    ldx #NUM_SPRITES - 1        // per-sprite body color (bit pair 10)
+    // Every ball's LOGICAL body color (bit pair 10). Not the hardware
+    // register - that gets written per band, from ball_color, by
+    // apply_bands. Writing VIC_SPRITE_COLOR directly here would only
+    // ever be seen for the balls that happen to land in band 0 on the
+    // very first frame.
+    ldx #MAX_BALLS - 1
 init_colors:
     lda sprite_colors, x
-    sta VIC_SPRITE_COLOR, x
+    sta ball_color, x
     dex
     bpl init_colors
 
-    // Per-sprite state. Loop X = 7 down to 0.
-    ldx #NUM_SPRITES - 1
+    lda #ACTIVE_BALLS_DEFAULT   // start at the original 8; B raises it,
+    sta active_balls            // SHIFT+B lowers it (see update_input)
+
+    // Per-ball state, all MAX_BALLS of them. Loop X = MAX_BALLS-1 down to 0.
+    ldx #MAX_BALLS - 1
 init_loop:
     // Random X in 40..295: random byte + 40, carry becomes the MSB.
     jsr get_random
@@ -991,6 +1147,19 @@ init_loop:
 
     dex
     bpl init_loop
+
+    // ball_order starts as the identity permutation (slot i holds ball
+    // i). sort_balls only ever permutes entries 0..active_balls-1 among
+    // THEMSELVES, so this is the only place that ever needs to write it
+    // from scratch - raising active_balls later just widens the range
+    // sort_balls sorts; the newly-exposed tail slot already holds its
+    // own ball's index, ready to be walked into position next frame.
+    ldx #MAX_BALLS - 1
+init_order:
+    txa
+    sta ball_order, x
+    dex
+    bpl init_order
     rts
 
 //------------------------------------------------------------------
@@ -1005,8 +1174,9 @@ init_loop:
 //   4.  update spin accumulator and pick the animation frame
 //------------------------------------------------------------------
 update_sprites:
-    ldx #NUM_SPRITES - 1
-update_loop:
+    ldx active_balls            // runtime count now, not a constant - only
+    dex                         // the balls actually in play get stepped,
+update_loop:                    // so raising/lowering it changes the cost
     //---- 1. Ease velocity toward target ----
     EaseVelocity(vx_lo, vx_hi, tvx_lo, tvx_hi)
     EaseVelocity(vy_lo, vy_hi, tvy_lo, tvy_hi)
@@ -1105,7 +1275,9 @@ y_ok:
     and #$07                    // frame 0..7
     clc
     adc #SPRITE_PTR_BASE        // block number = $80 + frame
-    sta SPRITE_PTRS, x          // VIC reads this pointer next frame
+    sta ball_ptr, x              // this ball's LOGICAL pointer - written to
+                                  // hardware only when apply_band gets to
+                                  // this ball's band, not here directly
 
     dex
     bmi update_done
@@ -1204,41 +1376,148 @@ rs_done:
     rts
 
 //------------------------------------------------------------------
-// apply_positions - copy all eight ball positions to the VIC-II
+// sort_balls - insertion sort ball_order[0..active_balls-1] ascending
+// by y_pix[ball_order[i]].
 //
-// X/Y registers are interleaved ($d000 X0, $d001 Y0, $d002 X1, ...), so
-// Y steps by 2 while X steps by 1. The MSB register packs bit 8 of every
-// sprite's X into one byte (bit n = sprite n), assembled with
-// shift-and-or from ball 7 down to ball 0.
+// Two levels of indirection: the SORT KEY for slot i is not y_pix[i],
+// it is y_pix[ball_order[i]] - ball_order holds ball IDENTITIES, and
+// those are what get moved around, not the balls' table rows themselves.
+//
+// Insertion sort, not anything fancier, because the input is nearly
+// sorted every single frame - balls move about a pixel a frame, so last
+// frame's order is almost always still correct and each pass is close
+// to O(n). It also means a newly activated ball (see update_input) just
+// walks into place over its first frame or two: nothing has to notice
+// active_balls changed and re-sort specially.
 //------------------------------------------------------------------
-apply_positions:
-    ldx #NUM_SPRITES - 1
-    ldy #(NUM_SPRITES - 1) * 2
-apply_loop:
+sort_balls:
+    lda #$01
+    sta sort_i
+si_outer:
+    lda sort_i
+    cmp active_balls
+    bcs si_done                  // i >= active_balls: sorted
+
+    tay
+    lda ball_order, y           // the ball to insert this pass
+    sta temp                     // temp = its identity
+    tay
+    lda y_pix, y
+    sta temp2                    // temp2 = its sort key
+
+    lda sort_i
+    sec
+    sbc #$01
+    sta sort_j                   // j = i - 1
+si_shift:
+    lda sort_j
+    bmi si_place                 // j < 0: nothing left to compare against
+    tay
+    lda ball_order, y           // the element sitting at slot j
+    tax                          // X = ITS identity, to key off y_pix
+    lda y_pix, x
+    cmp temp2
+    bcc si_place                 // y_pix[ball_order[j]] < our key: stop here
+
+    lda ball_order, y           // still bigger (or equal): shift it up
+    iny
+    sta ball_order, y
+    dec sort_j
+    jmp si_shift
+si_place:
+    lda sort_j
+    clc
+    adc #$01
+    tay
+    lda temp
+    sta ball_order, y
+
+    inc sort_i
+    jmp si_outer
+si_done:
+    rts
+
+//------------------------------------------------------------------
+// wait_raster_a - busy-wait until VIC_RASTER == A.
+//
+// The same equality-poll idiom main_loop and intro_raster.asm's rb_show
+// already use. If the target line has ALREADY passed this frame (the
+// caller was slower than expected), this spins all the way round to the
+// same line next frame rather than firing late - self-healing, at the
+// cost of a dropped frame, exactly like every other raster wait in this
+// codebase. See apply_band's caller for why the target is always kept
+// clear of the ambiguous low-byte range (see MIN_Y's own comment).
+//------------------------------------------------------------------
+wait_raster_a:
+    cmp VIC_RASTER
+    bne wait_raster_a
+    rts
+
+//------------------------------------------------------------------
+// apply_band - write hardware sprites 0-7 from ball_order[base..base+7],
+// where base comes in A (0 for band 0, 8 for band 1).
+//
+// A hardware slot whose ball_order index would be >= active_balls has
+// no real ball this frame (the LAST band, whenever active_balls is not
+// a multiple of HW_SPRITES) - it is simply left out of band_enable, so
+// VIC_SPRITE_ENABLE hides it outright rather than showing stale X/Y/
+// pointer/color from whatever ball last occupied that hardware slot.
+//
+// X holds the ball's own identity (for the four ball_* table reads);
+// Y holds band_slot, then band_slot*2 for the interleaved X/Y registers
+// - two different index spaces, both needed at once, hence the split.
+//------------------------------------------------------------------
+apply_band:
+    sta band_base
+    lda #$00
+    sta band_slot
+    sta band_enable
+    sta band_msb
+ab_loop:
+    lda band_slot
+    clc
+    adc band_base
+    cmp active_balls
+    bcs ab_next                  // no ball for this hw slot: leave it out
+                                  // of band_enable/band_msb and skip it
+
+    tax
+    lda ball_order, x
+    tax                          // X = the ball's own identity
+
+    ldy band_slot
+    lda hw_bit, y
+    ora band_enable
+    sta band_enable
+
+    lda ball_ptr, x
+    sta SPRITE_PTRS, y
+    lda ball_color, x
+    sta VIC_SPRITE_COLOR, y
+
+    lda x_msb, x
+    beq ab_no_msb
+    lda hw_bit, y
+    ora band_msb
+    sta band_msb
+ab_no_msb:
+    tya
+    asl
+    tay                          // Y = band_slot * 2, for X/Y registers
     lda x_lo, x
     sta VIC_SPRITE_X, y
     lda y_pix, x
     sta VIC_SPRITE_Y, y
-    dey
-    dey
-    dex
-    bpl apply_loop
 
-    lda x_msb + 7               // build %hgfedcba, one bit per ball, MSB
-    asl                         // first: shift up and fold the next in
-    ora x_msb + 6
-    asl
-    ora x_msb + 5
-    asl
-    ora x_msb + 4
-    asl
-    ora x_msb + 3
-    asl
-    ora x_msb + 2
-    asl
-    ora x_msb + 1
-    asl
-    ora x_msb + 0
+ab_next:
+    inc band_slot
+    lda band_slot
+    cmp #HW_SPRITES
+    bne ab_loop
+
+    lda band_enable
+    sta VIC_SPRITE_ENABLE
+    lda band_msb
     sta VIC_SPRITE_X_MSB
     rts
 
@@ -1493,24 +1772,74 @@ ue_done:
     rts
 
 //------------------------------------------------------------------
-// check_collisions - test every pair of balls and push touching ones apart
+// check_collisions - test candidate pairs and push touching ones apart
 //
-// Pairs are visited as (X, Y) with Y < X: (3,2) (3,1) (3,0) (2,1) (2,0)
-// (1,0). check_pair is called with X = ball A and Y = ball B.
+// Walks ball_order (sorted ascending by y_pix, freshly built by
+// sort_balls this same frame - see there) from the top down. For outer
+// position i, the inner position j counts down from i-1, comparing
+// ball_order[i] against ball_order[j]. Since the list is Y-sorted,
+// ball_order[i]'s y_pix is never less than ball_order[j]'s, so
+// y_pix[i] - y_pix[j] is a valid unsigned distance that only GROWS as j
+// decreases - the moment it reaches BALL_DIAM (the individual-axis
+// touch limit check_pair itself applies to dy, see there), every
+// smaller j is at least as far away, so the whole inner loop breaks
+// rather than skipping just that one pair.
+//
+// This turns the pair scan from unconditional O(n^2) into roughly O(n)
+// for balls that are actually scattered across the play field, which is
+// what makes 16 balls affordable in the same per-frame budget 8 used to
+// need - see the plan doc for the cycle math this is built to satisfy.
+//
+// check_pair itself is unchanged: still called with X = ball A's
+// identity, Y = ball B's identity, exactly as when the loop visited
+// indices directly. Only how the pair is FOUND changed, not what
+// happens once one is.
 //------------------------------------------------------------------
 check_collisions:
-    ldx #NUM_SPRITES - 1
-cc_outer:
-    txa
+    lda active_balls
+    sec
+    sbc #$01
+    sta sort_i                  // reusing sort_balls' scratch - it has
+cc_outer:                       // already done its job for this frame
+    lda sort_i
+    bmi cc_done
+
     tay
+    lda ball_order, y
+    sta pair_a                  // ball A's identity
+    tax
+    lda y_pix, x
+    sta temp2                   // A's y_pix - the pruning reference
+
+    lda sort_i
+    sec
+    sbc #$01
+    sta sort_j
 cc_inner:
-    dey                         // next partner below X
+    lda sort_j
     bmi cc_next_outer
+
+    tay
+    lda ball_order, y
+    sta temp                    // ball B's identity
+    tax
+    lda temp2
+    sec
+    sbc y_pix, x                // A.y - B.y; never borrows, list is sorted
+    cmp #BALL_DIAM
+    bcs cc_next_outer           // too far apart in Y already - and every
+                                 // ball below this one only more so
+
+    ldx pair_a                  // X = ball A
+    ldy temp                    // Y = ball B
     jsr check_pair
+
+    dec sort_j
     jmp cc_inner
 cc_next_outer:
-    dex
-    bne cc_outer                // ball 0 has no partner below it
+    dec sort_i
+    jmp cc_outer
+cc_done:
     rts
 
 //------------------------------------------------------------------
@@ -1597,12 +1926,12 @@ cp_dy_abs:
     bne cp_done
     lda #SWAP_COOL
     sta swap_cool
-    lda VIC_SPRITE_COLOR, x
-    sta temp
-    lda VIC_SPRITE_COLOR, y
-    sta VIC_SPRITE_COLOR, x
+    lda ball_color, x            // logical, per-ball color now, not the
+    sta temp                      // hardware register directly - apply_band
+    lda ball_color, y             // picks it up next time this ball's band
+    sta ball_color, x             // comes round
     lda temp
-    sta VIC_SPRITE_COLOR, y
+    sta ball_color, y
     tya
     tax
     ldx save_x
@@ -1852,9 +2181,22 @@ get_random:
 //------------------------------------------------------------------
 // Data tables (in the code segment, right after the routines)
 //------------------------------------------------------------------
-sprite_colors:                  // body color per sprite (bit pair 10)
-    .byte $02, $0d, $07, $03    // red, light green, yellow, cyan
-    .byte $04, $0a, $0e, $08    // purple, light red, light blue, orange
+sprite_colors:                  // body color per ball (bit pair 10),
+    .byte $02, $0d, $07, $03    // MAX_BALLS entries. red, light green,
+    .byte $04, $0a, $0e, $08    // yellow, cyan, purple, light red, light
+    .byte $02, $0d, $07, $03    // blue, orange, then the same eight again -
+    .byte $04, $0a, $0e, $08    // there are only eight colors the sphere
+                                 // shading (sprite_gen.asm) was tuned to
+                                 // read well in, so balls 8-15 repeat 0-7.
+                                 // Multiplexing means two same-colored balls
+                                 // can now be on screen in different bands
+                                 // at once; that was already possible with
+                                 // collisions' color-swap before this, so
+                                 // nothing new relies on the 8 being unique.
+
+hw_bit:                         // bit n = hardware sprite n, for building
+    .byte $01, $02, $04, $08    // VIC_SPRITE_ENABLE and VIC_SPRITE_X_MSB
+    .byte $10, $20, $40, $80    // one hw slot at a time in apply_band
 
 spark_chars:                    // random spark glyph: * + filled/hollow circle
     .byte $2a, $2b, $51, $57
