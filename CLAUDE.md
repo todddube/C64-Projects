@@ -31,6 +31,33 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 alias kickass='java -jar /Applications/KickAssembler/KickAss.jar'
 ```
 
+## C64 Reference Docs and Review Agent
+
+`.claude/c64-reference/` holds the hardware and assembler references this repo reviews
+against. Read these instead of recalling register addresses from memory:
+
+| File | Covers |
+|---|---|
+| `memory-map.md` | full address map, `$01` bank switching, zero page ownership, the clean-exit sequence |
+| `vic-ii.md` | `$D000-$D02E`, VIC bank select via `$DD00`, `$D018` screen/charset/bitmap mapping, display modes, PAL/NTSC raster and badline timing, sprites, DEN blanking |
+| `sid-cia.md` | SID voice/filter registers and gate handling, CIA 1/2, the full keyboard matrix |
+| `6502.md` | addressing modes with cycle counts, flags, signed and 8.8 fixed-point idioms, NMOS pitfalls |
+| `kickassembler.md` | the complete v5.25 directive table, syntax, encodings, color constants, CLI options — extracted from `KickAssembler.pdf` |
+| `review-checklist.md` | the review rubric (CPU, memory/banking, VIC-II, raster/IRQ, SID, repo conventions) |
+
+`.claude/agents/c64-reviewer.md` defines a **`c64-reviewer`** subagent that reads those docs
+and works the checklist over changed assembly. It reads and builds but never edits. Use it
+after writing or changing C64 assembly, or when a demo misbehaves (garbage graphics, IRQ
+lockup, silent SID, crash on exit).
+
+`.claude/skills/` holds five `6502-*` skills (instruction set, memory map, Merlin, SWEET16,
+6502-to-Rust) as **symlinks into the sibling repo `~/Documents/Github/6502-skills`**
+(github.com/sunsided/6502-skills). Only `6502-instruction-set` and `6502-memory-map` are
+C64-relevant; the rest are Apple II / porting oriented. The symlinks are absolute paths, so
+they are deliberately **not** committed — `git pull` in the sibling repo updates all five,
+and `./install.sh --to <repo>/.claude/skills` recreates them if the repo moves. For a
+machine-wide install instead, run `./install.sh --claude` there.
+
 ## Build Commands
 
 ### Local Development (macOS)
@@ -41,8 +68,36 @@ java -jar /Applications/KickAssembler/KickAss.jar filename.asm
 # Build with specific output directory and filename
 java -jar /Applications/KickAssembler/KickAss.jar main.asm -odir bin -o projectname.prg
 
-# Build output will be in same directory or bin/ subdirectory
-# Generated files: .prg (program), .sym (symbols), .dbg (debug info)
+# Build output goes to bin/. KickAssembler names the .prg after the source
+# file (main.asm -> bin/main.prg) unless -o is given.
+# Generated files: .prg only (plus buildlog.txt when tee'd as below)
+
+# Minimal-output build (the standard form used here):
+java -jar /Applications/KickAssembler/KickAss.jar main.asm -odir bin 2>&1 | tee bin/buildlog.txt | grep -vE '^//|^parsing$|^flex pass|^Output pass$|^Output dir:|^$|^ +(Music:|init |\$)'
+# A clean build normally prints exactly one line: "Writing prg file: main.prg".
+# Anything else is an error/warning - EXCEPT deliberate .print output from the
+# source. spritemove/music.asm prints three lines (the tune's name and its
+# load/init/play addresses) on every build; that is intentional, not a warning.
+# Full output is kept in bin/buildlog.txt.
+# The last alternative in the grep strips KickAssembler's PSID import
+# banner ("Music: ...", the load range, "init/play"), which a project that
+# #imports a .sid prints on a SUCCESSFUL build - without it, spritemove
+# looks like it emitted three warnings every time.
+#
+# /Applications/KickAssembler/KickAss.cfg is read AUTOMATICALLY on every build,
+# because it sits beside KickAss.jar - nothing has to point at it. It currently
+# sets only "-libdir .". Command-line options are applied after it, so "-odir
+# bin" always wins.
+#
+# Options in that file take their value after a SPACE. "-libdir=." is NOT
+# valid: Kick Assembler parses it as a filename and the build dies with
+# "Inputfile '-libdir=.' doesn't exist" or "Already have an inputfile". There
+# is no "-output-dir" option either - it is "-odir".
+#
+# Deliberately NOT in the cfg: -showmem (memory map), -symbolfile (.sym),
+# -debug (.dbg), -bytedump. Never add those by default; pass one on the command
+# line only for a single build that needs it (e.g. -symbolfile for a
+# Regenerator/VICE-monitor session, -showmem to check segment placement).
 
 # Run in VICE emulator (macOS arm64)
 /Applications/vice-arm64-gtk3/bin/x64sc program.prg
@@ -51,22 +106,51 @@ java -jar /Applications/KickAssembler/KickAss.jar main.asm -odir bin -o projectn
 /Applications/vice-arm64-gtk3/bin/x64sc -autostart program.prg
 ```
 
-### Custom Slash Commands (Claude Code agents)
-- `/build` — Builds the current project's main.asm with KickAssembler
-- `/build-all` — Builds all main.asm files in the repo
-- `/c64-new` — Scaffolds a new C64 project with standard structure
-- `/disassemble` — Disassembles a .prg (or other supported file) using Regenerator 2000
+### Custom Slash Commands (`.claude/commands/`)
+- `/build [path]` — Builds the current project with KickAssembler, then offers to run it in VICE
+- `/build-all` — Builds every project in the repo and prints a summary table
+- `/run [file.prg]` — Runs a .prg in VICE x64sc with `-autostart`
+- `/c64-new <name>` — Scaffolds a new project (`main.asm` + `memorymap.asm` + `bin/`)
 
-### CI/CD Integration
-- **GitHub Actions**: Builds all `main.asm` files in subdirectories on push/PR to main branch
-  - Uses Java 21 (Zulu distribution) and downloads KickAssembler from official source
-  - Outputs to `${{runner.workspace}}/build/` with directory-named PRG files
-  - Artifacts retained for 1 day
-- **Azure DevOps**: Builds and deploys to Ultimate II+ cartridge via FTP
-  - Requires private build agent with Java, KickAssembler, and lftp installed
-  - Deploys to `/Usb0/Dev/` directory on Ultimate II+ via FTP
-  - Uses variable group `c64` for FTP credentials
-- Build logs are stored in `buildlog.txt` in each project's `bin/` directory
+A "project" is a directory with `main.asm`, **or** a directory whose single top-level
+`.asm` is the main source (`scroller/scroller.asm`). The build commands handle both;
+don't assume every project is `main.asm`. Directories with
+several `.asm` files and no `main.asm` (`c64_lessons/lesson11/` step files, `demos/`,
+`Galactic Rasterbar/`) are not auto-buildable — name the file explicitly.
+
+### Run/test workflow used in practice
+```bash
+# Build (minimal output, see above), then launch VICE in the background and capture its log
+java -jar /Applications/KickAssembler/KickAss.jar main.asm -odir bin 2>&1 | tee bin/buildlog.txt | grep -vE '^//|^parsing$|^flex pass|^Output pass$|^Output dir:|^$|^ +(Music:|init |\$)'
+nohup /Applications/vice-arm64-gtk3/bin/x64sc -autostart bin/main.prg > bin/main.prg-vice.log 2>&1 &
+```
+The VICE log always contains "Unknown disk image" / "no CRT header" / tape errors for a
+.prg — those are autodetect probes, not failures. The line to look for is
+`AUTOSTART: Loading PRG file ... with direct RAM injection`.
+
+To *see* what a demo renders without watching it in real time, let VICE run a fixed
+number of cycles in warp mode and screenshot on exit:
+```bash
+/Applications/vice-arm64-gtk3/bin/x64sc -autostart bin/main.prg \
+    -warp -limitcycles 14000000 -exitscreenshot /tmp/shot.png
+```
+Autostart alone costs a few million cycles before the program's first frame (the C64
+boots first — measured at ~3.2M for `spritemove`, and it grows with the `.prg` size), and
+PAL runs ~985248 cycles/second, so `3200000 + seconds * 985248` is a good first guess at
+the frame you want. This is the fastest way to check an intro, a raster split or a color
+choice. `-ntsc` does the same on an NTSC machine, where a frame is 17095 cycles rather
+than 19656.
+
+### CI/CD
+There are **no GitHub Actions** (no `.github/workflows/`). The only pipeline is
+`c64_lessons/azure-pipelines.yml`, inherited from the upstream course repo: it has
+`trigger: none` (never runs automatically), needs a self-hosted agent pool named `Pi4`
+with KickAss.jar in `/usr/local/bin`, and only builds directories containing `main.asm`
+— so it covers most `c64_lessons/*` but **not** `spritemove/`, `scroller/`, `demos/` or
+`lesson11/`. Its CD stage `lftp mput`s the .prg files to `/Usb0/Dev` on the Ultimate II+.
+
+In practice builds are local only; `bin/` output is committed for several projects and
+deployment to the cartridge is manual.
 
 ## Disassembly Workflow
 
@@ -104,13 +188,14 @@ Binary: `/Applications/regenerator/regenerator2000`
 ### Disassembly Key Concepts
 - **Project files** (`.regen2000proj`): Save labels, comments, data-type annotations — use these for iterative reverse engineering sessions
 - **Assembler format**: Always use `--assembler kick` to export KickAssembler-compatible syntax
-- **VICE label import**: Use `.sym` files from KickAssembler builds to pre-annotate disassembly
+- **VICE label import**: `.sym` files pre-annotate a disassembly, but the standard build does NOT produce one — pass `-symbolfile` for that single build (see Build Commands)
 - **Headless mode**: `--headless` requires a `.regen2000proj` file; use for CI/export scripts
 - **Data types**: In TUI, mark regions as Code, Byte, Word, PETSCII Text, Screencode Text, etc.
 - **MCP integration**: The `--mcp-server-stdio` mode allows Claude Code to drive disassembly programmatically
 
 ### Reverse Engineering Workflow
-1. Build project to get `.prg` and `.sym` files
+1. Build project with `-symbolfile` to get `.prg` and `.sym` (the standard
+   build emits `.prg` only)
 2. Open `.prg` in Regenerator 2000 with `--import_lbl` pointing to `.sym`
 3. Annotate in TUI: mark data regions, add labels/comments, run auto-analysis
 4. Save as `.regen2000proj` for iterative work
@@ -119,13 +204,13 @@ Binary: `/Applications/regenerator/regenerator2000`
 ## Architecture Overview
 
 ### Project Structure
-The codebase is organized into five main areas:
-
-1. **c64_lessons/**: Progressive tutorial projects from basic to advanced topics
-2. **kickass_examples/**: Advanced KickAssembler feature demonstrations
-3. **demos/**: Complete demo programs with visual effects
-4. **spritemove/**, **scroller/**: Individual project directories
-5. **bin/**: Global build output directory
+1. **c64_lessons/**: Progressive tutorials. `lesson01`..`lesson10b` each have a `main.asm` (07/08/09/10b also `#import` their local `memorymap.asm` + `charset_1.asm`); no external dependencies. `lesson11` is the exception — no `main.asm`, just standalone `step_1_`..`step_4_` / `optimized-step4.asm` files showing incremental sprite development
+2. **kickass_examples/**: The official KickAssembler example projects (scripting, PSID import, Koala import, libraries, ...)
+3. **demos/**: Standalone demo sources (`demo1.asm`, `plasma_190.asm`) plus reference `.prg`/`.d64` files that are *not* built from source
+4. **spritemove/** (`main.asm`): Four physics-driven multicolor ball sprites with ghost trails, starfield, ASCII impact sparks and SID ping SFX, opening with a multicolor-bitmap spiral intro set to `Nightshift.sid`. All demo logic is in `main.asm`, heavily commented — read its header before editing. It imports four data/sequence files, none of them buildable on their own: `intro.asm` (the opening sequence), `intro_gfx.asm` (the spiral bitmap, generated at assembly time), `music.asm` (PSID import) and `sprite_gen.asm` (the ray-shaded ball frames + trail disc).
+   **Its code segment starts at `$2240`, not the usual `$0810`** — a PSID player is not relocatable and Nightshift loads at `$1000-$1d77`. The intro runs in VIC bank 1 (bitmap `$4000`, video matrix `$6000`) and switches back to bank 0 text mode for the demo
+5. **scroller/** (`scroller.asm`): Raster bars + scroller + SID music. **Depends on the sibling repo `C64-Standards`** — imports are written `../../C64-Standards/include/...`, resolved relative to `scroller/`, i.e. `Github/C64-Standards/include/` (`c64_constants.asm`, `zeropage.asm`) — it must be checked out next to this repo or the build fails on `#import`
+6. **Galactic Rasterbar/**: Reverse-engineering project. `*_disasm.asm` / `*_todd.asm` are Regenerator 2000 output in **64tass syntax** (`;` comments, `label = $xxxx`), not KickAssembler — re-export with `--assembler kick` before building with KickAss. Original binary is in `orig/`
 
 ### Standard Assembly Structure
 ```assembly
@@ -168,7 +253,7 @@ project_directory/
 ├── font-project.pe   # Font editor project files
 ├── bin/              # Build outputs
 │   ├── main.prg     # Compiled program
-│   ├── main.sym     # Symbol table
+│   ├── main.sym     # Symbol table — only when built with -symbolfile
 │   ├── buildlog.txt # Build information
 │   └── *.prg-vice.log # VICE emulator test logs
 ```
@@ -186,6 +271,84 @@ project_directory/
 - **Build Verification**: Memory maps and symbol tables generated for debugging
 - **Hardware Testing**: Ultimate II+ cartridge for final validation
 - **Progressive Development**: Step-by-step files (lesson11) show incremental testing approach
+
+## Demo Conventions
+
+### Exit key: RUN/STOP ends the demo
+Every demo in this repo that takes over the machine (`sei`, own keyboard scan,
+BASIC's zero page reused) must provide a `check_exit` routine called once per
+frame from the main loop. RUN/STOP is keyboard row 7 (`$7f` -> `$dc00`), column
+bit 7, active low:
+
+```assembly
+check_exit:
+    lda #$7f
+    sta $dc00
+    lda $dc01
+    and #$80
+    beq exit_demo           // bit clear = pressed
+    lda #$ff
+    sta $dc00
+    rts
+```
+
+`exit_demo` silences the SID (`$d400..$d418`), clears `$d015`, restores `$d011`
+to `$1b`, deselects the keyboard rows, then `jmp ($fffc)` — the kernal RESET
+vector. Do **not** `rts` back to BASIC: these demos overwrite `$02-$8f`, so
+BASIC will crash. Do **not** `cli` first either: `$fffc` does its own `sei`, and
+an IRQ taken in that window runs the kernal handler on the trashed zero page.
+Because `sei` does not mask NMI, `start` should also write `$7f` to `$dd0d` and
+read it back. Note that this masks CIA 2's *own* NMI sources only — **it does not
+stop RESTORE**, which is wired straight to `/NMI` through a monostable. Blocking
+RUN/STOP+RESTORE properly needs the NMI vector at `$0318/$0319` pointed at an
+`rti` as well; see `.claude/c64-reference/sid-cia.md`. No demo in this repo does
+that yet.
+`/c64-new` scaffolds this routine into `main.asm`.
+
+Reference implementation: `spritemove/main.asm` (`check_exit` / `exit_demo`).
+
+### Opening the vertical border
+The VIC sets its vertical border flip-flop on the first line of the bottom
+border — 251 with RSEL=1 (`$d011` bit 3), 247 with RSEL=0. Switching to 24 rows
+while the raster is *on line 250* means the line it now waits for is already
+past, so the flip-flop is never set: no bottom border for that frame and no top
+border on the next, and sprites are displayed through both. Switch back to 25
+rows later in the frame (any time after 251) so the next frame can do it again:
+
+```assembly
+main_loop:
+    lda #$fa                    // sync on line 250
+wait_raster:
+    cmp $d012
+    bne wait_raster
+    lda #$13                    // RSEL=0: bottom border never opens
+    sta $d011
+    // ... a frame's worth of work, raster ends up well past 251 ...
+    lda #$1b                    // back to 25 rows for the next pass
+    sta $d011
+```
+
+Two things this costs you, both learned the hard way in `spritemove/`:
+- **Zero the last byte of the VIC bank** (`$3fff` in bank 0). In the opened
+  border the VIC is idle and displays *that byte*, not the screen, so whatever
+  junk it holds tiles the border.
+- **Sprites with Y < 56 get a ghost twin.** A sprite triggers when the low 8
+  bits of the raster match its Y, and PAL lines 256–311 repeat low bytes 0–55 —
+  visible once the bottom border is open. Keep sprite Y ≥ 56, which in practice
+  means you gain the bottom border, not the top.
+
+The **side** borders are a different problem: they need a cycle-exact `$d016`
+write on every raster line, i.e. a stable-raster IRQ, and that consumes most of
+the frame. Nothing in this repo does it.
+
+### Blanking the screen (intro reveals)
+Clearing DEN (bit 4 of `$d011`, i.e. `$0b` instead of `$1b`) switches the whole
+display off — text, color RAM *and* sprites — leaving a flat sheet of border
+color. Set border and background to the same value first so nothing flickers
+when DEN comes back on. `spritemove/intro.asm` (`intro_to_text`) uses this for
+the handoff out of its bitmap intro: DEN goes off, the VIC bank, `$d018` and
+`$d016` are switched back to text mode, the stars and status bar are drawn into
+a screen nobody can see, and only then does DEN come back on.
 
 ## Common Patterns
 
@@ -219,12 +382,12 @@ project_directory/
 
 - **Primary target**: Ultimate II+ cartridge
 - **Emulation**: VICE emulator for testing
-- **Deployment**: Automated FTP upload to `/Usb0/Dev/` on cartridge
+- **Deployment**: Manual FTP upload to `/Usb0/Dev/` on the cartridge (the Azure pipeline that automated this is disabled with `trigger: none`)
 - **Testing**: Log files indicate extensive VICE emulator usage
 
 ## KickAssembler Features
 
-Reference: `C:\C64\KickAssembler\KickAssembler.pdf`
+Reference: `/Applications/KickAssembler/KickAssembler.pdf`
 
 This codebase makes extensive use of KickAssembler's advanced features:
 - Namespace and library system for code organization
@@ -282,6 +445,13 @@ lda (ptr),y
 
 ## Common Build Errors
 
+### Missing import (scroller)
+```
+Error: File not found: ../../C64-Standards/include/c64_constants.asm
+```
+The `C64-Standards` repo is not cloned beside this one. Clone it to
+`/Users/todddube/Documents/Github/C64-Standards` or inline the needed constants.
+
 ### Branch Too Far
 When loops exceed 127 bytes, relative branches fail with:
 ```
@@ -313,7 +483,7 @@ done:
 ### File Types and Usage
 - **Font Projects**: `.pe` files for character set design using font editors
 - **Progressive Lessons**: Step-by-step implementation files in lesson directories
-- **Build Outputs**: `.prg` (program), `.sym` (symbols), `.dbg` (debug), `buildlog.txt`
+- **Build Outputs**: `.prg` (program) and `buildlog.txt` by default; `.sym` (symbols) and `.dbg` (debug) only when `-symbolfile` / `-debug` is passed for that build
 - **Test Logs**: `.prg-vice.log` files from VICE emulator sessions
 
 ### Development Patterns

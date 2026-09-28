@@ -2,13 +2,14 @@
 Error - failed to retrieve executable path, falling back to getcwd() + argv[0]
 
 Reading configuration file `/Users/todddube/.config/vice/vicerc'.
+Mainlock: Initializing chip model "MOS6567R8" (65 cycles per line, 263 raster lines).
  
 *** VICE Version 3.10 ***
  
 This is the condensed log, for the full log use --verbose or --debug.
  
-Main: random seed was: 0x6aab2781
-Main: command line was: /Applications/vice-arm64-gtk3/VICE.app/Contents/Resources/bin/x64sc -autostartprgmode 1 -autostart /Users/todddube/Documents/Github/C64-Projects/spritemove/spritemov.prg
+Main: random seed was: 0x6ab926d2
+Main: command line was: /Applications/vice-arm64-gtk3/VICE.app/Contents/Resources/bin/x64sc -autostart bin/main.prg
 Main: VICE system file directory: '/Applications/vice-arm64-gtk3/VICE.app/Contents/Resources/bin/../share/vice'.
 Main: VICE system file search path: '/Users/todddube/.local/share/vice:/Applications/vice-arm64-gtk3/VICE.app/Contents/Resources/bin:/Applications/vice-arm64-gtk3/VICE.app/Contents/Resources/bin/../share/vice'.
 Sysfile: Loading `/Applications/vice-arm64-gtk3/VICE.app/Contents/Resources/bin/../share/vice/C64/kernal-901227-03.bin'.
@@ -19,7 +20,7 @@ DriveROM: Error - 2000 ROM image not found. Hardware-level 2000 emulation is not
 DriveROM: Error - 4000 ROM image not found. Hardware-level 4000 emulation is not available.
 DriveROM: Error - CMDHD ROM image not found. Hardware-level CMDHD emulation is not available.
 Sysfile: Loading `/Applications/vice-arm64-gtk3/VICE.app/Contents/Resources/bin/../share/vice/DRIVES/dos1541ii-251968-03.bin'.
-VIC-II: Initializing chip model "MOS8565" (63 cycles per line, 312 raster lines).
+VIC-II: Initializing chip model "MOS6567R8" (65 cycles per line, 263 raster lines).
 Window: Chip 'VICII' using GTK3 backend 'OpenGL'.
 OpenGL: Loading vertex shader: /Applications/vice-arm64-gtk3/VICE.app/Contents/Resources/bin/../share/vice/GLSL/viewport.vert
 OpenGL: Loading fragment shader: /Applications/vice-arm64-gtk3/VICE.app/Contents/Resources/bin/../share/vice/GLSL/builtin.frag
@@ -30,7 +31,6 @@ OpenGL: Loading fragment shader: /Applications/vice-arm64-gtk3/VICE.app/Contents
 OpenGL: Loading vertex shader: /Applications/vice-arm64-gtk3/VICE.app/Contents/Resources/bin/../share/vice/GLSL/viewport.vert
 OpenGL: Loading fragment shader: /Applications/vice-arm64-gtk3/VICE.app/Contents/Resources/bin/../share/vice/GLSL/bicubic-interlaced.frag
 Palette: Loading palette `/Applications/vice-arm64-gtk3/VICE.app/Contents/Resources/bin/../share/vice/C64/pepto-ntsc-sony.vpl'.
-Palette: Loading palette `/Applications/vice-arm64-gtk3/VICE.app/Contents/Resources/bin/../share/vice/C64/pepto-ntsc-sony.vpl'.
 Sound: Available sound devices: coreaudio dummy dump fs wav voc iff aiff mp3 flac ogg soundmovie
 Joystick: Warning - Failed to open `/Users/todddube/.config/vice/gtk3-joymap-C64SC.vjm'.
 Joystick: Warning - using minimal default mapping.
@@ -39,31 +39,72 @@ Hotkeys: parsing default file '/Applications/vice-arm64-gtk3/VICE.app/Contents/R
 
 Main CPU: starting at ($FFFC).
 Main CPU: RESET.
-VIC-II: VSP Bug: safe channels are: 02456. Emulation of memory corruption is disabled.
-AUTOSTART: Autodetecting image type of `/Users/todddube/Documents/Github/C64-Projects/spritemove/spritemov.prg'.
-Filesystem Image: Error - Cannot open file `/Users/todddube/Documents/Github/C64-Projects/spritemove/spritemov.prg'.
-Tape: Error - Cannot open file `/Users/todddube/Documents/Github/C64-Projects/spritemove/spritemov.prg'
-CART: '/Users/todddube/Documents/Github/C64-Projects/spritemove/spritemov.prg' is not a valid CRT file.
-AUTOSTART: Error - Cannot open `/Users/todddube/Documents/Github/C64-Projects/spritemove/spritemov.prg'.
-AUTOSTART: Error - `/Users/todddube/Documents/Github/C64-Projects/spritemove/spritemov.prg' is not a valid file.
-Error - Failed to autostart '/Users/todddube/Documents/Github/C64-Projects/spritemove/spritemov.prg'
+VIC-II: VSP Bug: safe channels are: . Emulation of memory corruption is disabled.
+AUTOSTART: Autodetecting image type of `bin/main.prg'.
+Filesystem Image Probe: Error - Import GCR: Unknown GCR image version 55.
+Filesystem Image: Unknown disk image `bin/main.prg'.
+Tape: Error - Cannot open file `bin/main.prg'
+Error - no CRT header found.
+CART: '/Users/todddube/Documents/Github/C64-Projects/spritemove/bin/main.prg' is not a valid CRT file.
+AUTOSTART: Loading PRG file `bin/main.prg' with direct RAM injection.
+AUTOSTART: Resetting the machine to autostart '*'
+VIC-II: VSP Bug: safe channels are: 167. Emulation of memory corruption is disabled.
+AUTOSTART: Turning Warp mode on.
+AUTOSTART: `bin/main.prg' recognized as program/p00 file.
+Main CPU: RESET.
+sound (coreaudio_init): Found output audio device: LG HDR 4K
+sound (coreaudio_init): Found output audio device: LG HDR 4K
+sound (coreaudio_init): Found audio device with no outputs: Plantronics BT600
+sound (coreaudio_init): Found output audio device: Plantronics BT600
+sound (coreaudio_init): Found output audio device: Razer Leviathan V2 X (Default)
+sound (coreaudio_init): Found audio device with no outputs: HD Pro Webcam C920
+sound (coreaudio_init): Found output audio device: Mac mini Speakers
+sound (coreaudio_init): Using output audio device: Razer Leviathan V2 X
+sound (coreaudio_init): audio frame buffer size in samples min: 15.000000 max: 4096.000000 fragment size: 32, chosen: 32
+sound (coreaudio_start): Started
+Sound: Opened device `coreaudio', speed 48000Hz, fragment size 0.67ms, buffer size 20.00ms
+Copybuffer increase to 64 bytes
+Sound: reSID: MOS6581, filter on, sampling rate 48000Hz - resampling, pass to 21600Hz
+VSync: Sync reset
+Unit 8: RESET.
+AUTOSTART: Injecting program data at $0801 (size $62e7)
+AUTOSTART: Ready
+AUTOSTART: Turning Warp mode off.
+AUTOSTART: Starting program.
+AUTOSTART: Restoring FileSystemDevice8 to 1.
+AUTOSTART: Restoring FSDevice8ConvertP00 to 1.
+AUTOSTART: Restoring FSDeviceLongNames to 0.
+AUTOSTART: Done.
+VSync: Sync reset
 
 Configure Flags:
 --enable-gtk3ui --enable-option-checking --disable-arch --disable-html-docs --enable-cpuhistory --enable-ethernet --enable-midi --enable-parsid --enable-pdf-docs --with-fastsid --with-flac --with-gif --with-lame --with-libcurl --with-png --with-resid --with-vorbis --enable-macos-minimum-version=12.0
 
 Resources with non default values:
 SaveResourcesOnExit=1
-Window0Height=940
-Window0Width=1128
-Window0Xpos=4362
-Window0Ypos=277
+Window0Height=1087
+Window0Width=1348
+Window0Xpos=1110
+Window0Ypos=353
+ExitScreenshotName="/private/tmp/claude-501/-Users-todddube-Documents-Github-C64-Projects-spritemove/2c04dc35-02d2-4890-ba51-25c576c16c15/scratchpad/rst_23000000.png"
+MachineVideoStandard=2
+MachinePowerFrequency=60
+IECReset=1
+CIA1Model=0
+CIA2Model=0
 VICIIPaletteFile="pepto-ntsc-sony.vpl"
 VICIIExternalPalette=1
 VICIIFilter=2
+VICIIModel=3
+SidModel=0
 AutostartPrgMode=1
+GlueLogic=0
+MonitorServerAddress="127.0.0.1:6510"
+MonitorServer=1
 
 reconstructed commandline options (might be incomplete):
--default -saveres -windowxpos "4362" -windowypos "277" -windowwidth "1128" -windowheight "940" -VICIIfilter "2" -VICIIextpal -VICIIpalette "pepto-ntsc-sony.vpl" -autostartprgmode "1"
+-default -saveres -windowxpos "1110" -windowypos "353" -windowwidth "1348" -windowheight "1087" -exitscreenshot "/private/tmp/claude-501/-Users-todddube-Documents-Github-C64-Projects-spritemove/2c04dc35-02d2-4890-ba51-25c576c16c15/scratchpad/rst_23000000.png" -ntsc -power60 -cia1model "0" -cia2model "0" -iecreset "1" -VICIIfilter "2" -VICIIextpal -VICIIpalette "pepto-ntsc-sony.vpl" -VICIImodel "3" -sidmodel "0" -autostartprgmode "1" -gluelogictype "0" -remotemonitor -remotemonitoraddress "127.0.0.1:6510"
 
 Writing configuration file `/Users/todddube/.config/vice/vicerc'.
-VIC-II: VSP Bug: safe channels are: 2. Emulation of memory corruption is disabled.
+VIC-II: VSP Bug: safe channels are: 02. Emulation of memory corruption is disabled.
+AudioComponentInstanceDispose
