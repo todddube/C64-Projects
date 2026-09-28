@@ -12,8 +12,9 @@
 // in the machine's own font rather than something hand-drawn. Bit 7 of
 // each row is the leftmost pixel.
 //
-// NAME_CHARS must stay a multiple of 3 and at most 12: intro_sprites.asm
-// packs 3 characters into each of 4 sprites.
+// NAME_CHARS and DATE_CHARS must stay a multiple of 3 and at most 12:
+// intro_sprites.asm packs 3 characters into each of 4 sprites. VER_ROWS is
+// carved into the bitmap only - it has no sprite copy and no such limit.
 //==================================================================
 
 // "RetroDubTRVA" - 12 glyphs x 8 rows, lifted from the C64 character ROM
@@ -44,5 +45,15 @@
 .eval DATE_ROWS.add($3c, $66, $06, $0c, $30, $60, $7e, $00)   // "2"
 .eval DATE_ROWS.add($3c, $66, $60, $7c, $66, $66, $3c, $00)   // "6"
 
+// "v1.0" - carved into the bitmap only. There is no flying copy: all
+// eight sprites are spoken for by the name and the date, and a version
+// label has no business flying anyway.
+.var VER_ROWS = List()
+.eval VER_ROWS.add($00, $00, $66, $66, $66, $3c, $18, $00)   // "v"
+.eval VER_ROWS.add($18, $38, $18, $18, $18, $18, $7e, $00)   // "1"
+.eval VER_ROWS.add($00, $00, $00, $00, $00, $18, $18, $00)   // "."
+.eval VER_ROWS.add($3c, $66, $6e, $76, $66, $66, $3c, $00)   // "0"
+
 .const NAME_CHARS = 12
 .const DATE_CHARS = 10
+.const VER_CHARS  = 4

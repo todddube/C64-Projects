@@ -1,10 +1,10 @@
 //==================================================================
 // SPRITE_GEN - assembly-time sprite graphics for SPRITEMOV
 //
-// Imported by main.asm; not buildable on its own (it needs SPRITE_DATA
-// and TRAIL_DATA from main.asm's constants). Nothing in here is read at
-// run time by the CPU - it only places bytes for the VIC to fetch, so it
-// is separated from the demo logic it never touches.
+// Imported by main.asm; not buildable on its own (it needs SPRITE_DATA from
+// main.asm's constants). Nothing in here is read at run time by the CPU -
+// it only places bytes for the VIC to fetch, so it is separated from the
+// demo logic it never touches.
 //==================================================================
 
 //------------------------------------------------------------------
@@ -68,27 +68,3 @@
     }
     .byte 0                             // pad to 64 bytes
 }
-
-//------------------------------------------------------------------
-// Trail Sprite - one solid hi-res disc, slightly smaller than the ball
-//
-// Hi-res sprites are 24 x 21 one-bit pixels: bit set = sprite color
-// ($d027+n), clear = transparent. The disc peeks out from behind the
-// ball as it moves, so it only needs to be roughly ball-sized.
-//------------------------------------------------------------------
-* = TRAIL_DATA "Trail Sprite"
-
-.const TRAIL_RADIUS = 9.2
-
-.for (var row = 0; row < 21; row++) {
-    .var bits = 0
-    .for (var col = 0; col < 24; col++) {
-        .var dx = (col + 0.5) - CENTER_X
-        .var dy = (row + 0.5) - CENTER_Y
-        .if (sqrt(dx * dx + dy * dy) < TRAIL_RADIUS) {
-            .eval bits = bits | (1 << (23 - col))
-        }
-    }
-    .byte (bits >> 16) & $ff, (bits >> 8) & $ff, bits & $ff
-}
-.byte 0                                 // pad to 64 bytes

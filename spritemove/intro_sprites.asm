@@ -16,13 +16,18 @@
 // THE PACKING
 // -----------
 // A sprite is 24 pixels across - exactly 3 characters at 8 pixels each -
-// and 21 rows deep. Each font row is stored TWICE, so 8 font rows fill 16
-// sprite rows and a character comes out 8 x 16. X expansion ($d01d) then
-// doubles the width to 16 x 16, square on screen and the same size as the
-// carved logo. The last 5 rows of each sprite are blank.
+// and 21 rows deep. The two words are packed at different scales, to match
+// the way they are carved into the bitmap:
 //
-//   sprites 0-3   NAME_CHARS characters of the name, 3 per sprite
-//   sprites 4-7   DATE_CHARS characters of the date, 3 per sprite
+//   sprites 0-3  the name, 3 characters each, every font row stored TWICE
+//                so 8 font rows fill 16 sprite rows. X-expanded at run
+//                time, so a character is 16 x 16 on screen.
+//   sprites 4-7  the date, 3 characters each, rows stored ONCE and NOT
+//                X-expanded, so a character is 8 x 8 - the font's own
+//                size, and half the name in both directions.
+//
+// flow_logo_on writes %00001111 to $d01d for exactly this reason, and
+// x_place spaces the date's sprites 24 pixels apart against the name's 48.
 //
 // Sprite n's data is at INTRO_SPR + n * 64, so its VIC block number is
 // INTRO_SPR / 64 + n. They live in VIC bank 1 with the intro's bitmap;
@@ -39,6 +44,15 @@
     .return rows.get(ci * 8 + floor(r / 2))
 }
 
+//------------------------------------------------------------------
+// spr_row_1x - the same, at the font's own size: one sprite row per font
+// row, so the glyph occupies 8 rows instead of 16.
+//------------------------------------------------------------------
+.function spr_row_1x(rows, n, ci, r) {
+    .if (r >= 8 || ci >= n) { .return 0 }
+    .return rows.get(ci * 8 + r)
+}
+
 * = INTRO_SPR "Intro Logo Sprites"
 
 .for (var s = 0; s < 4; s++) {              // sprites 0-3: the name
@@ -50,10 +64,10 @@
     .byte 0                                  // pad 63 -> 64
 }
 
-.for (var s = 0; s < 4; s++) {              // sprites 4-7: the date
+.for (var s = 0; s < 4; s++) {              // sprites 4-7: the date, 1:1
     .for (var r = 0; r < 21; r++) {
         .for (var c = 0; c < 3; c++) {
-            .byte spr_row(DATE_ROWS, DATE_CHARS, s * 3 + c, r)
+            .byte spr_row_1x(DATE_ROWS, DATE_CHARS, s * 3 + c, r)
         }
     }
     .byte 0
