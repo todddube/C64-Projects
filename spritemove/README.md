@@ -53,6 +53,7 @@ in the vertical blank and step from it in multiples of 19656 (a PAL frame).
 | Key | Action |
 |---|---|
 | `+` / `-` or `CRSR` | Speed level, 1-16 (default 4 = half base speed) |
+| `B` / `SHIFT+B` | Ball count, 4-16 (default 8) - see Sprite multiplexing below |
 | `R` | Restart from the very top of the intro |
 | `Q` or `RUN/STOP` | End the demo, back to a `READY.` prompt |
 
@@ -60,7 +61,7 @@ The bottom **two** text rows are the menu — a fixed legend of the keys on row 
 and the speed bar plus the exit key on row 24:
 
 ```
-SPEED +/- OR CRSR    R=RESTART  Q=QUIT
+SPEED +/- CRSR B=BALLS R=RESTART Q=QUIT
 SPD[####............] RUN/STOP=END
 ```
 
@@ -299,15 +300,56 @@ driven one tick per frame at a fixed raster line.
 
 ### The demo
 
-Eight multicolor sprites — ray-shaded balls, generated at assembly time — drift
-around a black starfield with smooth random motion. Each ball spins as it moves,
-faster when it moves faster and reversing when it turns.
+Multicolor sprites — ray-shaded balls, generated at assembly time — drift
+around a black starfield with smooth random motion, 4 to 16 of them at once
+(`B` / `SHIFT+B`, default 8). Each ball spins as it moves, faster when it
+moves faster and reversing when it turns.
 
-Eight is not a round number picked for looks: it is every sprite the VIC-II has,
-and it is also exactly what zero page will hold. Fifteen per-ball tables at 8
-bytes each is 120 bytes, `$02-$79`, leaving `$7a-$94` for all global state.
-There is no room for a ninth ball, and none for a second table per ball — which
-is why the ghost trails that used to occupy sprites 4-7 are gone.
+#### Sprite multiplexing: more balls than the VIC has sprites
+
+The VIC-II has exactly 8 hardware sprites, fixed in silicon — there is no
+ninth one to enable. Above 8 active balls, `main.asm` reuses those same 8
+sprites twice a frame, splitting the screen into two **raster bands** and
+reprogramming all 8 sprites' X/Y/pointer/color partway down the frame to show
+a different set of balls in the lower band.
+
+Every ball still gets its own physics state (position, velocity, spin,
+pointer, color) in a per-ball table — just not in a hardware register until
+its band's turn comes up. Which balls land in which band is decided fresh
+every frame by **sorting all active balls by Y** (`sort_balls`, an insertion
+sort — cheap because the order rarely changes much frame to frame) and
+handing the lowest 8 to band 0 and the rest to band 1. That sort has to run
+every frame regardless of band count, so `check_collisions` reuses it as a
+sweep: instead of testing all `C(n,2)` pairs, it walks the Y-sorted list and
+stops comparing a ball against progressively-lower ones the moment their Y
+gap exceeds the touch radius, since nothing sorted below that point can be
+any closer. 16 balls is 120 possible pairs against 8 balls' 28, and this
+keeps the common (scattered) case close to O(n) instead of O(n²).
+
+Band 0 publishes at the same point in the frame `apply_positions` always
+did — right after the line-250 sync, for the *previous* frame's physics
+result, same one-frame pipeline as before. Band 1 can't use that timing: it
+has to land while the *current* frame is actually being drawn, part way
+between band 0's balls and band 1's on screen, so a busy-wait for that exact
+raster line sits between them. The frame's physics work (`update_sprites`,
+the sort) is deliberately placed in that gap rather than after both bands -
+those raster lines have to elapse regardless of what the CPU does with them,
+so doing the frame's main cost there costs nothing extra rather than sitting
+idle in a wait loop. Measured with a pixel-diff over consecutive real frames
+(not eyeballed - a few pixels of ball motion a frame is easy to misjudge by
+eye), 16 balls holds the full 50 Hz PAL rate with no dropped frames.
+
+Ball *state* still doesn't fit in zero page at 16 balls (15 tables x 16 is
+240 bytes, more than all of `$02-$FF`), so it moved to ordinary RAM,
+overlapping the intro's four wave fields and reusing the same "dead by the
+time the other side starts" trick zero page already used for the intro's own
+variables - `play_intro` finishes completely before a single ball byte is
+written. Indexed table access costs the same off zero page (`lda table,x` is
+4 cycles either way), so this cost nothing at runtime, only an extra opcode
+byte per access - the actual reason it isn't at `$3000` right next to the
+bitmap it displaced from is that `Main Code` grew past that address once the
+multiplexing code was added, and KickAssembler will not let two segments
+share a byte.
 
 Everything moves in **8.8 fixed point**, one byte of whole pixels and one of
 1/256ths, so a ball can travel at 0.3 px/frame and still look smooth. X needs 9
@@ -359,7 +401,7 @@ a PAL frame's 19656 cycles, which does not fit next to this much physics.
 | `main.asm` | The demo: registers, zero page, main loop, physics, collisions, trails, sparks, sound, status bar |
 | `sprite_gen.asm` | Assembly-time ball frames (8) |
 | `intro.asm` | The opening sequence: phases, sweep, palette and glint tables, sprite flow |
-| `intro_gfx.asm` | The spiral bitmap with the logo carved in, plus the cell fields |
+| `intro_gfx.asm` | The retro sunset-grid bitmap with the logo carved in, plus the cell fields |
 | `intro_sprites.asm` | The flying logo sprites and the sine table |
 | `intro_text.asm` | Glyph rows for the name, date and `v1.0`, lifted from the C64 character ROM |
 | `intro_raster.asm` | The raster bar overture and the border bars over the closing wipe |
@@ -412,16 +454,23 @@ bank 1.
 ### Zero page
 
 ```
-$02-$79  per-ball tables (15 tables x 8 bytes)
-$7a-$94  global state (RNG, timers, scratch, speed, keyboard)
+$02-$95  global state (RNG, timers, scratch, speed, keyboard, ball count,
+         sprite-multiplexing scratch - see below)
 ```
 
-**The intro's variables deliberately overlap the ball tables** at `$02-$0f`.
-`play_intro` runs to completion before `init_sprites` writes a single ball byte,
-so the two are never live at the same time. This is what makes eight balls fit
-at all. It has one consequence worth remembering: nothing the demo needs may be
-written *before* `play_intro` — `speed`, `key_timer` and `swap_cool` are set
-after it returns for exactly this reason.
+The 15 per-ball tables used to live at `$02-$79`, one 8-byte row each - that
+was the ceiling zero page could hold. They have since moved to ordinary RAM
+(`BALL_STATE`, overlapping the intro's wave fields) to make room for up to
+16 balls; see **Sprite multiplexing** above for why and where. `ptr`
+(`$84`) is the one table that stayed - `(ptr),y` indirect indexed addressing
+has no absolute-memory form on the 6502, so it has no choice but zero page.
+
+**The intro's variables deliberately overlap this block** at `$02-$0f`.
+`play_intro` runs to completion before `init_sprites` writes a single byte
+of demo state, so the two are never live at the same time. It has one
+consequence worth remembering: nothing the demo needs may be written
+*before* `play_intro` — `speed`, `key_timer` and `swap_cool` are set after it
+returns for exactly this reason.
 
 The intro's variables are kept below `$8f` because that is the range the SID
 player was checked against. The demo's globals may sit above it, because by then

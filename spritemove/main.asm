@@ -405,6 +405,10 @@ BasicUpstart2(start)            // emits a "10 SYS 8768" BASIC stub at $0801
                                    // is check_pair's internal business,
                                    // not a contract check_collisions
                                    // should depend on)
+.label ball_key_timer = $9e       // update_input: B/SHIFT+B's own repeat
+                                   // timer, separate from key_timer so
+                                   // holding one control never disturbs
+                                   // the other's repeat cadence
 
 //------------------------------------------------------------------
 // BALL_STATE - the per-ball tables, OUT of zero page.
@@ -555,10 +559,24 @@ BasicUpstart2(start)            // emits a "10 SYS 8768" BASIC stub at $0801
 .label INTRO_VM     = $6000     // 1000 video matrix cells, painted by
                                 // paint_sweep. In hi-res each byte is two
                                 // colors: high nibble ink, low nibble paper
-.label INTRO_WAVE_A = $3000     // 1000 cell field values, rings  (intro_gfx)
-.label INTRO_WAVE_B = $3400     // 1000 cell field values, 1 turn (intro_gfx)
-.label INTRO_WAVE_C = $3800     // 1000 cell field values, 3 turns(intro_gfx)
-.label INTRO_WAVE_D = $3c00     // 1000 cell field values, plasma (intro_gfx)
+// These four used to sit at $3000-$3fe7, immediately before the bitmap.
+// They moved here, overlapping BALL_STATE, when Main Code grew past
+// $3000 - see BALL_STATE's own comment. The VIC never fetches these
+// (paint_sweep reads them with the CPU only), so unlike the bitmap they
+// have no hardware reason to sit next to it, and reusing BALL_STATE's
+// footprint is the same "dead by the time the other user starts" trick
+// BALL_STATE already documents: play_intro (and every read of these
+// four fields) finishes completely before init_sprites writes the
+// first byte of ball state. Each still has to start on its OWN page
+// boundary - set_page's page_lo table assumes the field's low byte is
+// $00 - which is why they are $400 apart rather than packed at 1000.
+.label INTRO_WAVE_A = BALL_STATE          // = $7200; rings
+.label INTRO_WAVE_B = BALL_STATE + $400   // = $7600; 1 turn
+.label INTRO_WAVE_C = BALL_STATE + $800   // = $7a00; 3 turns
+.label INTRO_WAVE_D = BALL_STATE + $c00   // = $7e00; plasma - runs to $81e7,
+                                            // just past $8000. Free RAM: no
+                                            // cartridge is ever present, so
+                                            // nothing maps ROM there.
 .label INTRO_SPR    = $6400     // 8 x 64 bytes, the flying logo (bank 1)
 .label INTRO_SPR_PTR = (INTRO_SPR - $4000) / $40  // = $90. A VIC block number
                                         // is relative to the START OF THE
@@ -597,6 +615,8 @@ BasicUpstart2(start)            // emits a "10 SYS 8768" BASIC stub at $0801
 .label KEY_REPEAT   = 6         // frames between repeats while a key is held
 .label BAR_COL      = 4         // screen column of the first bar cell
 .label BAR_LEN      = 16        // one cell per speed level
+.label BALL_COUNT_COL = 24      // screen column of the ball-count's tens
+                                 // digit on the status row, see status_text
 
 //------------------------------------------------------------------
 // Macros
@@ -816,12 +836,17 @@ clear_loop:
     lda #$00                    // demo state: set AFTER the intro, because
     sta swap_cool               // the intro's variables share these bytes
     sta key_timer               // with the ball tables
+    sta ball_key_timer
     lda #SPEED_DEFAULT
     sta speed
 
     jsr init_stars              // scatter the background stars
     jsr draw_status             // status text + speed bar on row 24
-    jsr init_sprites            // VIC sprite setup, random ball state
+    jsr init_sprites            // VIC sprite setup, random ball state -
+                                 // sets active_balls, so its readout has
+                                 // to be drawn AFTER, not as part of the
+                                 // draw_status call above
+    jsr draw_ball_count
     jsr init_sound              // silence the tune; voice 1 = ping SFX
 
     // With the vertical border open the VIC spends the border lines in its
@@ -1596,6 +1621,20 @@ update_input:
 ui_shifted:
     inc key_shift
 
+    // 'B' changes the ball count - checked before the speed controls
+    // and handled completely separately (own timer, own clamp, own
+    // redraw), so holding B never also nudges the speed bar. SHIFT+B
+    // lowers the count, matching the cursor keys' own shift-reverses
+    // convention above; plain B raises it.
+ui_check_b:
+    lda #$f7                    // row 3: 'B' is bit 4
+    sta CIA1_PORT_A
+    lda CIA1_PORT_B
+    and #$10
+    beq ui_ball_change           // held (active low)
+    lda #$00                     // released: next press acts at once
+    sta ball_key_timer
+
 ui_row5:
     lda #$df
     sta CIA1_PORT_A
@@ -1661,6 +1700,44 @@ ui_done:
     rts
 
 //------------------------------------------------------------------
+// ui_ball_change - 'B' / SHIFT+B: raise or lower active_balls.
+//
+// A full mirror of ui_apply/ui_change above, just against active_balls
+// instead of speed, with its own repeat timer (ball_key_timer) so
+// holding one control never disturbs the other's repeat cadence.
+//------------------------------------------------------------------
+ui_ball_change:
+    lda #$ff
+    sta CIA1_PORT_A              // deselect rows, same as ui_apply
+    lda ball_key_timer
+    beq ui_ball_do
+    dec ball_key_timer           // still holding: wait for the repeat
+    rts
+ui_ball_do:
+    lda #KEY_REPEAT
+    sta ball_key_timer
+
+    lda key_shift
+    bne ui_ball_dec               // shifted: fewer balls
+    lda active_balls
+    clc
+    adc #$01
+    jmp ui_ball_clamp
+ui_ball_dec:
+    lda active_balls
+    sec
+    sbc #$01
+ui_ball_clamp:
+    cmp #ACTIVE_BALLS_MIN
+    bcc ui_ball_rts               // would go below the minimum
+    cmp #ACTIVE_BALLS_MAX + 1
+    bcs ui_ball_rts               // would go above the compiled ceiling
+    sta active_balls
+    jmp draw_ball_count           // tail call
+ui_ball_rts:
+    rts
+
+//------------------------------------------------------------------
 // draw_status - write the fixed status text on the bottom row
 //------------------------------------------------------------------
 draw_status:
@@ -1698,6 +1775,35 @@ dsb_color:
     sta COLOR_RAM + STATUS_ROW + BAR_COL, x
     dex
     bpl dsb_loop
+    rts
+
+//------------------------------------------------------------------
+// draw_ball_count - two decimal digits, active_balls (04..16)
+//
+// Repeated subtraction rather than a divide: active_balls never exceeds
+// MAX_BALLS (16), so this is at most one trip round dbc_tens.
+//------------------------------------------------------------------
+draw_ball_count:
+    lda active_balls
+    ldx #$30                    // '0' - screencode digits sit at the same
+dbc_tens:                       // values as PETSCII/ASCII ones, $30-$39
+    cmp #10
+    bcc dbc_ones
+    sec
+    sbc #10
+    inx
+    jmp dbc_tens
+dbc_ones:
+    pha                          // stash the ones digit (0-9) a moment
+    txa
+    sta SCREEN_RAM + STATUS_ROW + BALL_COUNT_COL
+    pla
+    clc
+    adc #$30
+    sta SCREEN_RAM + STATUS_ROW + BALL_COUNT_COL + 1
+    lda #$0c                     // grey, matching the rest of the row
+    sta COLOR_RAM + STATUS_ROW + BALL_COUNT_COL
+    sta COLOR_RAM + STATUS_ROW + BALL_COUNT_COL + 1
     rts
 
 //------------------------------------------------------------------
@@ -2224,10 +2330,12 @@ ping_pitch:       .byte 0       // trigger_ping's argument
 
 .encoding "screencode_upper"
 legend_text:                    // 40 columns: what every key does
-    .text "SPEED +/- OR CRSR    R=RESTART  Q=QUIT  "
+    .text "SPEED +/- CRSR B=BALLS R=RESTART Q=QUIT "
 
-status_text:                    // 40 columns; the bar is filled in by code
-    .text "SPD[                ] RUN/STOP=END      "
+status_text:                    // 40 columns; the speed bar and the ball
+    .text "SPD[                ] B:00 STOP=END     "   // count digits are
+                                 // filled in by code - draw_speed_bar and
+                                 // draw_ball_count respectively
 
 twinkle_colors:                 // random star shades (mostly dim)
     .byte $0b, $0c, $0f, $01, $0c, $0b, $0e, $0c
