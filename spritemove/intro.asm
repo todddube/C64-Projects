@@ -133,7 +133,7 @@ play_intro:
     sta intro_t
 pz_loop:
     jsr intro_sync
-    dec intro_t
+    BeatDec(intro_t)            // in tune ticks, not frames (NTSC)
     bne pz_loop
 
     //---- Phase T: the title card - name, date and version, on black ----
@@ -150,7 +150,7 @@ pt_loop:
     inc text_phase              // the glint keeps moving along the letters
     jsr build_tabs
     jsr paint_sweep             // two pages a frame: the title is up in two
-    dec intro_t
+    BeatDec(intro_t)            // in tune ticks, not frames (NTSC)
     bne pt_loop
 
     //---- Phase A: the sunset blends in around the title ----
@@ -184,7 +184,7 @@ pa_set:
     jsr advance_palette
     jsr build_tabs
     jsr paint_sweep
-    dec intro_t
+    BeatDec(intro_t)            // in tune ticks, not frames (NTSC)
     bne pa_loop
 
     //---- Phase B: the grid scan accelerates, the logo flies in ----
@@ -214,7 +214,7 @@ pb_loop:
     jsr advance_palette
     jsr build_tabs
     jsr paint_sweep
-    dec intro_t
+    BeatDec(intro_t)            // in tune ticks, not frames (NTSC)
     bne pb_loop
 
     //---- Phase F: the plasma field - the picture swims instead of scanning ----
@@ -231,12 +231,13 @@ pf_loop:
     jsr advance_palette
     jsr build_tabs
     jsr paint_sweep
-    dec intro_t
+    BeatDec(intro_t)            // in tune ticks, not frames (NTSC)
     bne pf_loop
 
     //---- Phase C: the flying logo lands - sprites off, carving ignites ----
-    lda #$00
-    sta VIC_SPRITE_ENABLE       // the only copy left is the one in the bitmap
+    // Sprites go off at the first pc_loop sync (line 250, below every
+    // sprite), not here: here the raster is mid-band (~170-190), and
+    // cutting $d015 now chops the lower half off whatever is being drawn.
     lda #>INTRO_WAVE_C          // the tight diagonal field: the shimmer
     sta wave_pg                 // winds up instead of carrying on swimming
     ldx #$00
@@ -245,15 +246,20 @@ pf_loop:
     jsr set_text_ramp
     lda #INTRO_C_LEN
     sta intro_t
+    jsr intro_sync              // first frame: sync, THEN sprites off
+    lda #$00
+    sta VIC_SPRITE_ENABLE       // the only copy left is the one in the bitmap
+    jmp pc_first
 pc_loop:
     jsr intro_sync
+pc_first:
     inc text_phase              // glint at double speed too (16 frames a lap)
     inc text_phase
     jsr advance_palette
     jsr advance_palette         // double speed: the shimmer winds up
     jsr build_tabs
     jsr paint_sweep
-    dec intro_t
+    BeatDec(intro_t)            // in tune ticks, not frames (NTSC)
     bne pc_loop
 
     //---- Phase D: last burst, then ramp the whole field to white ----
@@ -285,7 +291,7 @@ pd_rotate:
     jsr build_tabs
     jsr paint_sweep
 pd_next:
-    dec intro_t
+    BeatDec(intro_t)            // in tune ticks, not frames (NTSC)
     bne pd_loop
 
     //---- Phase W: the white sheet drops as a curtain ----
@@ -331,7 +337,7 @@ pw_loop:
     jsr build_wipe_tabs
     jsr paint_sweep
     jsr rb_band                 // ...and the tail of the frame is the bars'
-    dec intro_t
+    BeatDec(intro_t)            // in tune ticks, not frames (NTSC)
     bne pw_loop
 
     jmp intro_to_text           // tail call: back to text mode, display off
@@ -398,7 +404,7 @@ intro_sync:
 is_wait:
     cmp VIC_RASTER
     bne is_wait
-    jsr MUSIC_PLAY              // one tick of the tune, at a fixed raster
+    jsr music_tick              // one tick of the tune, at a fixed raster
     jsr check_exit              // RUN/STOP bails out of the intro
     lda #$fa                    // do not run twice on the same line
 is_leave:
@@ -411,7 +417,7 @@ is_leave:
 // Called twice a frame where the effect wants double speed.
 //------------------------------------------------------------------
 advance_palette:
-    dec pal_tick
+    BeatDec(pal_tick)
     bne ap_done
     lda pal_step                // reload and step the phase on
     sta pal_tick
@@ -555,22 +561,22 @@ flo_ptr:
 //       0/24/48/72 for the 1:1 date. The four sprites of a word stay
 //       locked together and the word drifts as a whole.
 //
-//   Y   FLOW_Y_BASE + sin(flow_t2) / 2  ->  84..211, the word bobbing as
+//   Y   FLOW_Y_BASE + sin(flow_t2) / 2  ->  83..210, the word bobbing as
 //       ONE body with every sprite sharing the term, so it never comes
 //       apart, plus sin(flow_t3 + i/4 turn) / 16, a wobble that runs
-//       along the word and makes it undulate. 84..226 all told.
+//       along the word and makes it undulate. 83..225 all told.
 //
 // IT OPENS ON THE CARVED POSITION, EXACTLY
 // ----------------------------------------
 // flow_logo_on parks every phase at 0, and x_phase/y_phase are chosen so
 // that phase 0 of each sine IS the spot the logo is carved into the
-// bitmap: the name at (88, 187), the date at (144, 211). The carving goes
+// bitmap: the name at (88, 186), the date at (144, 210). The carving goes
 // dark in the same routine that lights the sprites, so the title does not
 // move by a pixel as one copy hands over to the other - it simply stops
 // being bitmap and starts being sprites. Get those phases wrong and the
 // logo teleports at the handoff, which is what FLOW_Y_BASE exists for:
 // the old path topped out at Y 192 and could not reach the carved date at
-// all. Check bitmap (px, py) -> sprite (px + 24, py + 51) if the carve
+// all. Check bitmap (px, py) -> sprite (px + 24, py + 50) if the carve
 // ever moves.
 //
 // flow_hold then freezes every counter for INTRO_HOLD frames. Because the
@@ -605,7 +611,7 @@ flo_ptr:
 flow_sprites:
     lda flow_hold               // still holding the entry pose?
     beq fs_advance
-    dec flow_hold
+    BeatDec(flow_hold)
     jmp fs_setup                // leave every phase where it is
 fs_advance:
     inc flow_t
@@ -679,9 +685,9 @@ fs_ripple_done:
     lda INTRO_SIN, y
     lsr                         // 0..127 of travel
     clc
-    adc #FLOW_Y_BASE            // 84: the TOP of the flight path, so the
+    adc #FLOW_Y_BASE            // 83: the TOP of the flight path, so the
     clc
-    adc temp                    // 84..226, never past the visible bottom
+    adc temp                    // 83..225, never past the visible bottom
     sta temp
     lda temp2
     asl

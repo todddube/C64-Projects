@@ -50,7 +50,7 @@
 // label has no business flying anyway.
 .var VER_ROWS = List()
 .eval VER_ROWS.add($00, $00, $66, $66, $66, $3c, $18, $00)   // "v"
-.eval VER_ROWS.add($18, $38, $18, $18, $18, $18, $7e, $00)   // "1"
+.eval VER_ROWS.add($18, $18, $38, $18, $18, $18, $7e, $00)   // "1" (ROM glyph)
 .eval VER_ROWS.add($00, $00, $00, $00, $00, $18, $18, $00)   // "."
 .eval VER_ROWS.add($3c, $66, $6e, $76, $66, $66, $3c, $00)   // "0"
 

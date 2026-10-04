@@ -123,6 +123,9 @@
 .label RB_BUF       = $0900     // one colour per raster line, page aligned
 .label RB_TOP       = 56        // first line rb_show drives. 56 and not 51
 .label RB_BOT       = 250       // because a raster low byte under 56 is
+.label RB_BOT_NTSC  = 232       // NTSC: 49 fewer lines a frame, so the band
+                                // gives up its last 18 to the off-screen
+                                // half - see rb_setup
                                 // ambiguous - PAL lines 256-311 repeat 0-55 -
                                 // and rb_show has to be able to tell which
                                 // line it is looking at without a counter
@@ -175,7 +178,7 @@ rt_frame:
     jsr rb_vwork                // line 250..56: music, keys, fade, gsh
     jsr rb_move                 // ...and next frame's bar positions
     jsr rb_build                // ...and next frame's line buffer
-    dec rb_stept
+    BeatDec(rb_stept)           // in tune ticks: the steps land on the beat
     bne rt_frame
     inc rb_step
     lda rb_step
@@ -186,9 +189,9 @@ rt_frame:
 // rb_outro - the bars have just imploded into one line in the middle of
 // the screen, so blow the whole buffer out flat: light grey, four frames
 // of white, then down through grey to black. The labels are still up, so
-// they vanish into the white and come back out of it as the sheet darkens
-// - and by the time the screen is black there is nothing left to clear
-// that anyone can see.
+// they vanish into the white and come back out of it as the sheet darkens.
+// On the first black frame ro_dark blacks out their colour RAM, so they
+// leave with the sheet instead of sitting lit on black and snapping off.
 //------------------------------------------------------------------
 rb_outro:
     lda #$00
@@ -198,17 +201,23 @@ ro_loop:                        // uses X and rb_show uses Y
     lda ro_flash, x
     jsr rb_fill                 // flat: no bars in the flash
     jsr rb_show
-    jsr MUSIC_PLAY
+    lda rb_step
+    cmp #(ro_black - ro_flash)
+    bne ro_lit
+    jsr ro_dark                 // first black frame: labels go out with it
+ro_lit:
+    jsr music_tick
     jsr check_exit
     inc rb_step
     lda rb_step
     cmp #(ro_flash_end - ro_flash)
     bne ro_loop
 
-    // The screen is black now. Take the titles away under cover of it,
-    // because start cleared the text screen BEFORE calling play_intro and
-    // never clears it again - left alone, "R E T R O D U B T R V A" would
-    // still be sitting across row 4 when the balls came up.
+    // Take the titles away. They have to go: start cleared the text
+    // screen BEFORE calling play_intro and never clears it again, so
+    // "R E T R O D U B T R V A" would otherwise still be sitting across
+    // row 4 when the balls came up. ro_dark has already blacked out their
+    // colour RAM, so nobody sees this happen.
     lda #$20                    // space
     ldx #$00
 ro_clear:
@@ -220,8 +229,26 @@ ro_clear:
     bne ro_clear
     rts
 
+// ro_dark - all colour RAM to black. Called once, after rb_show on the
+// flash's first black frame, so it runs in the lower border / vertical blank. It is
+// ~6.4K cycles, so the next frame's band starts late - a few lines on
+// PAL, ~60 on NTSC - invisible, because that frame's band is black too.
+ro_dark:
+    lda #$00
+    ldx #$00
+rd_loop:
+    sta COLOR_RAM, x
+    sta COLOR_RAM + $100, x
+    sta COLOR_RAM + $200, x
+    sta COLOR_RAM + $2e8, x
+    dex
+    bne rd_loop
+    rts
+
 ro_flash:
-    .byte $0f, $01, $01, $01, $01, $0f, $0c, $0b, $00, $00
+    .byte $0f, $01, $01, $01, $01, $0f, $0c, $0b
+ro_black:
+    .byte $00, $00
 ro_flash_end:
 
 //------------------------------------------------------------------
@@ -234,6 +261,22 @@ ro_flash_end:
 // through the bitmap intro in bank 1.
 //------------------------------------------------------------------
 rb_setup:
+    // The off-screen half (music, keys, bar movement, the buffer rebuild)
+    // has to fit between the bottom of the band and line RB_TOP of the
+    // next frame. PAL gives it 118 lines; NTSC only 69, about 4500
+    // cycles, against a measured worst case of ~6400 for the work (music
+    // ~1770 of it). Ending the band 18 lines early on NTSC buys ~1170
+    // cycles and still frames the lowest label (row 21, lines 219-226).
+    // Measured over the whole NTSC overture: one late frame, the first.
+    lda #RB_BOT
+    ldx ntsc
+    beq !+
+    lda #RB_BOT_NTSC
+!:  sta rs_bot_a + 1
+    clc
+    adc #$01
+    sta rs_bot_b + 1
+
     lda #$00
     sta VIC_SPRITE_ENABLE       // nothing but bars and characters
     sta VIC_BORDER
@@ -284,6 +327,8 @@ rsu_colour:
     dex
     bne rsu_colour
 
+    lda #$ff
+    sta rb_built_back           // first rb_build floods the band
     lda #$00
     jsr rb_fill                 // a black buffer for the first frame, which
                                 // is displayed before rb_build has ever run
@@ -314,7 +359,8 @@ rsu_colour:
 rb_show:
 rs_past:
     ldy VIC_RASTER
-    cpy #RB_BOT
+rs_bot_a:
+    cpy #RB_BOT                 // <- patched by rb_setup (RB_BOT_NTSC)
     bcs rs_past                 // still inside/below the band
 rs_sync:
     ldy VIC_RASTER
@@ -328,7 +374,8 @@ rsl_wait:                       //     nothing may stand between detecting
     sta VIC_BORDER              // 4   is nine of them exactly)
     sta VIC_BACKGROUND          // 4   the paper behind the characters
     iny                         // 2
-    cpy #RB_BOT + 1             // 2
+rs_bot_b:
+    cpy #RB_BOT + 1             // 2   <- patched by rb_setup
     bne rs_line                 // 3
 rs_end:
     lda #$00                    // the band is 56..250; everything outside it
@@ -340,13 +387,13 @@ rs_end:
 // rb_vwork - the housekeeping half, between line 250 and line 56.
 //------------------------------------------------------------------
 rb_vwork:
-    jsr MUSIC_PLAY              // one tick, at a fixed point in the frame
+    jsr music_tick              // one tick, at a fixed point in the frame
     jsr check_exit              // RUN/STOP bails out, R restarts
     jsr rb_do_fade              // bring the newest label up a step
 
     lda rb_gmode                // 0 = amplitude is fixed this step
     beq rv_done
-    dec rb_gcnt
+    BeatDec(rb_gcnt)
     bne rv_done
     lda rb_gdiv
     sta rb_gcnt
@@ -422,16 +469,48 @@ rm_shift:
 // never displayed - rb_show starts at 56 - so the wrap is harmless and
 // costs no clamping.
 //
-// About 3500 cycles: 1300 for the fill (65 turns of three stores) and 20
-// a line for 96 bar lines. It is the largest single item in the frame's
-// off-screen budget - see the note on that budget in the file header.
+// Incremental, because the full version - flood all 195 lines, then copy
+// the bars a line at a time - measured 4100 cycles, and an NTSC frame has
+// only ~4500 off-screen cycles for EVERYTHING (music included). So:
+//   - put the backdrop back on just the 8 x 12 lines last frame's bars
+//     covered (rb_oldy), unrolled: ~560 cycles;
+//   - copy the eight new bars, each strip unrolled: ~1100 cycles.
+// The full flood only happens when the backdrop colour itself changes
+// (rb_built_back), which also covers the very first frame.
 //------------------------------------------------------------------
 rb_build:
     lda rb_back
+    cmp rb_built_back
+    beq rbd_erase
+    sta rb_built_back           // new backdrop: flood the whole band
     jsr rb_fill
-    lda #RB_COUNT - 1
-    sta rb_bar
-    jmp rb_plot_bars
+    jmp rbd_plot
+rbd_erase:                      // A = rb_back
+    ldx #RB_COUNT - 1
+rbd_erase_bar:
+    ldy rb_oldy, x
+    .for (var k = 0; k < RB_H; k++) {
+        sta RB_BUF + k, y       // runs up to $0a0a past a bar at Y 255:
+    }                           // free RAM, and never displayed
+    dex
+    bpl rbd_erase_bar
+rbd_plot:                       // back to front: bar 0 ends up on top
+    ldx #RB_COUNT - 1
+rbd_plot_bar:
+    lda rb_y, x
+    sta rb_oldy, x              // what next frame has to erase
+    tay
+    stx rb_bar
+    lda rb_pal, x
+    tax
+    .for (var k = 0; k < RB_H; k++) {
+        lda rb_strips + k, x
+        sta RB_BUF + k, y
+    }
+    ldx rb_bar
+    dex
+    bpl rbd_plot_bar
+    rts
 
 //------------------------------------------------------------------
 // rb_fill - flood lines RB_TOP..RB_BOT with A. Three stores a turn over
@@ -858,4 +937,6 @@ rb_stept:   .byte 0             // frames left in it
 rb_fade:    .byte 0             // frames of label fade left, 0 = idle
 rb_fade_row: .byte 0            // which text row is fading
 rb_tmp:     .byte 0
+rb_oldy:    .fill RB_COUNT, 0   // rb_build: last frame's bar tops
+rb_built_back: .byte $ff        // rb_build: backdrop the buffer holds
 rb_tmp2:    .byte 0

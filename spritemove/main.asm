@@ -1,9 +1,14 @@
 //==================================================================
-// SPRITEMOV - Eight Wandering Balls, Stars, Sparks and Ping SFX
+// SPRITEMOV - 4 to 16 Wandering Balls, Stars, Sparks and Ping SFX
 // KickAssembler v5.25 / Commodore 64 (6502)
 //
 // Build:  java -jar /Applications/KickAssembler/KickAss.jar main.asm -odir bin
-// Run:    /Applications/vice-arm64-gtk3/bin/x64sc -autostart bin/main.prg
+// Run:    /Applications/vice-arm64-gtk3/bin/x64sc -ntsc -autostart bin/main.prg
+//
+// Target: NTSC first (US machines: 263 lines x 65 cycles = 17095 cycles a
+// frame, 60 Hz), PAL second. detect_video picks the standard at start-up;
+// the tune is kept at its PAL tempo on NTSC (music_tick) and the overture
+// gives up a few band lines to fit NTSC's shorter vertical blank.
 //
 // Files:  main.asm          the demo itself (this file)
 //         sprite_gen.asm    assembly-time ball graphics
@@ -18,8 +23,10 @@
 //
 // WHAT THIS PROGRAM DOES
 // ----------------------
-// Eight multicolor sprites - shaded balls, every sprite the VIC has -
-// drift around a black, starry screen with smooth, organic, random motion.
+// Shaded multicolor balls - 8 to start, 4 to 16 with B / SHIFT+B - drift
+// around a black, starry screen with smooth, organic, random motion. Past
+// eight they are multiplexed: a raster IRQ re-uses each of the VIC's eight
+// hardware sprites for a second ball further down the screen (mux_irq).
 // Each ball spins as it moves, faster when it moves faster and reversing
 // when it turns. A short bell-like ping plays on the SID whenever a ball
 // bounces off an edge or off another ball - low for a wall, higher and
@@ -27,7 +34,7 @@
 // an ASCII spark onto the text screen at the point of contact and makes
 // the two balls swap colors.
 //
-// The vertical border is held open (see main_loop), so the balls use the
+// The vertical border is held open (see mux_irq), so the balls use the
 // whole visible picture from top to bottom rather than just the 25-row
 // text window: they fly over the status row and on down into what would
 // be the bottom border.
@@ -35,19 +42,22 @@
 // The demo opens on a raster bar overture: eight colour bars flying over
 // a black text screen through five movement modes - a travelling wave,
 // crossing scissors, a nested fan, eight independent tempos, and an
-// implosion into a single line - while the handle and five labels fade up
+// implosion into a single line - while the handle and six labels fade up
 // one at a time between them. See intro_raster.asm.
 //
-// The bitmap intro then holds for a beat and brings up a title card -
-// name, date and version - out of nothing. A dithered spiral tunnel then blends in around it, its colors
-// rotating in time with a SID tune (Nightshift by Ari Yliaho), the title
-// lifts off the bitmap as a flying sprite copy, and lands back into the
-// carving before the white-out. See intro.asm.
+// The hi-res bitmap intro then holds for a beat and brings up a title card
+// - name, date and version - out of nothing. A dithered retro sunset grid
+// (sky bands, a striped sun, a perspective floor) then blends in around
+// it, its colours cycling in time with a SID tune (Nightshift by Ari
+// Yliaho); the title lifts off the bitmap as a flying sprite copy and
+// lands back into the carving before the white-out and the curtain wipe.
+// See intro.asm.
 //
 // The bottom two text rows are a menu: a legend of the keys on row 23 and
-// the speed bar on row 24. The cursor keys or + / - change the speed, R
-// restarts from the top of the intro, and Q or RUN/STOP end the demo and
-// hand the machine back with a clean READY. prompt.
+// the speed bar and ball count on row 24. The cursor keys or + / - change
+// the speed, B / SHIFT+B the number of balls, R restarts from the top of
+// the intro, and Q or RUN/STOP end the demo and hand the machine back with
+// a clean READY. prompt.
 //
 // The program never returns to BASIC; it runs a frame-locked main loop
 // until RUN/STOP is pressed, which resets the machine back to a clean
@@ -60,15 +70,21 @@
 //   3. Constants                       screen limits, effect tuning
 //   4. Macros                          EaseVelocity, Negate16, ScaleVel
 //   5. start / main_loop               one-time setup, intro, then per frame:
+//        detect_video       (once) NTSC or PAL
 //        play_intro         (once) raster overture, bitmap intro + music,
 //                           then the reveal
-//        check_exit         RUN/STOP -> silence hardware, reset
-//        update_input       keyboard -> speed level, status bar
-//        update_sprites     ease, scale, integrate, edge bounce, spin frame
-//        check_collisions   all 28 ball pairs, push apart, swap colors
-//        apply_positions    write all 8 sprite positions to the VIC
+//        init_mux           (once) hand the sprites to the raster IRQ
+//        check_exit         RUN/STOP / Q -> silence hardware, reset; R
+//        update_input       keyboard -> speed level, ball count, status bar
+//        rescale_some       catch the velocity cache up after a speed change
+//        update_sprites     integrate, edge bounce, spin frame (+ easing)
+//        sort_balls         ball_order ascending by Y
+//        check_collisions   Y-pruned pair sweep, half per frame, push apart
+//        build_list         the multiplexer's write list from this frame
 //        update_effects     impact sparks, star twinkle, cooldowns
 //        update_sound       age the ping cooldown
+//      mux_irq              raster IRQ chain: band 0 + sprite re-use +
+//                           the open border
 //   6. Helper routines                 reverse_x/y, new_heading, random_speed,
 //                                      init_stars, draw_status,
 //                                      spawn_spark,
@@ -78,38 +94,48 @@
 //   8. #import "sprite_gen.asm"        8 shaded ball frames
 //      #import "intro.asm"            the opening sequence (its own header)
 //      #import "music.asm"            PSID import of the intro tune
-//      #import "intro_gfx.asm"        spiral bitmap + carved logo + fields
+//      #import "intro_gfx.asm"        sunset bitmap + carved logo + fields
 //      #import "intro_sprites.asm"    the flying logo + sine table
 //      #import "intro_raster.asm"     the raster bar overture + wipe bars
-//        (both pull in intro_text.asm - glyph rows, assembly time only)
+//        (intro_gfx.asm pulls in intro_text.asm - glyph rows, assembly
+//        time only; intro_sprites.asm reuses its lists)
 //
 // MEMORY LAYOUT
 // -------------
-//   $0002-$0072  zero page variables (see below)
-//   $0400-$07e7  text screen: stars, status row 24 (the sprite pointers
-//                live at $07f8-$07ff inside the same 1K block)
+//   $0002-$0014  zero page: the intro's variables, ntsc, music_div,
+//                beat_hold
+//   $007a-$00ad  zero page: the demo's globals and the IRQ's state
+//   $00f8-$00f9  zero page: Nightshift's player (traced: nothing else)
+//   $0314-$0315  IRQ vector -> mux_irq during the demo
+//   $0318-$0319  NMI vector -> nmi_ignore (RESTORE does nothing)
+//   $0400-$07e7  text screen: stars, status rows 23-24 (the sprite
+//                pointers live at $07f8-$07ff inside the same 1K block)
 //   $0801        BASIC stub "10 SYS 8768"  (8768 = $2240)
-//   $0900-$09ff  raster bar line buffer: one colour per raster line
-//   $3fff        VIC idle fetch - what the VIC displays in the opened
-//                border, zeroed at start-up (see VIC_IDLE_FETCH)
+//   $0900-$0a0b  raster bar line buffer: one colour per raster line
 //   $1000-$1d77  Nightshift.sid - player and music data, at its own load
 //                address (invisible to the VIC, which sees char ROM here)
 //   $2000-$21ff  8 ball frames, 64 bytes each  (VIC blocks $80-$87)
-//   $2240-...    code and data tables
-//   $3000-$3fe7  intro cell fields (4 x 1000 values, CPU only)
+//   $2240-$3fff  code and data tables (Main Code; ends ~$3460)
+//   $3fff        VIC idle fetch - what the VIC displays in the opened
+//                border, zeroed at start-up (see VIC_IDLE_FETCH)
 //   $4000-$5f3f  intro bitmap      (VIC bank 1, 8000 bytes)
 //   $6000-$63e7  intro video matrix (VIC bank 1, filled at run time)
 //   $63f8-$63ff  intro sprite pointers (VIC bank 1)
 //   $6400-$65ff  intro logo sprites (VIC bank 1, 8 x 64 bytes)
 //   $6600-$66ff  intro sine table   (CPU only)
 //   $6700-$6ae7  intro wipe field   (CPU only)
-//   $6b00-...    intro_raster.asm's code and data (CPU only)
+//   $6b00-$73ff  intro_raster.asm's code and data (CPU only; ends ~$7190)
+//   $7400-$83e7  intro cell fields A-D (4 x 1000 at $400 spacing, CPU only)
+//   $8400-$857f  BALL_STATE: 24 per-ball tables x 16
+//   $8600-$873f  the multiplexer's double-buffered write list
 //
 // SPRITE ROLES
 // ------------
 //   sprites 0-7  the balls   (multicolor, 8 animation frames each)
-// All eight of the VIC's sprites are balls. Lower-numbered sprites are
-// drawn on top, so ball 0 passes in front of ball 7.
+// All eight of the VIC's sprites are balls. With up to 8 balls each has
+// its own sprite; past 8, sprite k shows the k-th highest ball (band 0)
+// and is then re-used, mid-frame, for the (k+8)-th (see build_list).
+// Lower-numbered sprites are drawn on top.
 //
 // HOW THE MOVEMENT WORKS
 // ----------------------
@@ -140,29 +166,35 @@
 //
 // SPEED CONTROL
 // -------------
-// The stored velocities are "base" velocities. Every frame each one is
-// scaled by a global speed level before it is used:
+// The stored velocities are "base" velocities. Each is scaled by a global
+// speed level into an "effective" velocity, which is what integration and
+// spin use:
 //
 //       effective = base * speed / 8          (speed = 1..16)
 //
 // so level 8 is the base speed, the default of 4 is half speed, and 16 is
 // double. The multiply is a 16x5-bit shift-and-add on the magnitude, then
-// the sign is restored (see ScaleVel). Only the effective velocity is used
-// for integration and spin, so changing the level never disturbs the
-// headings, bounces or easing.
+// the sign is restored (see ScaleVel). The effective velocity is CACHED
+// per ball (evx/evy): it is recomputed only while a ball eases up to
+// speed, and a few balls a frame after the level changes - a bounce just
+// negates it along with the base velocity. Recomputing it every frame was
+// ~600 cycles a ball, more than 16 balls can afford in an NTSC frame.
 //
 // Keys (CIA1 matrix scanned directly, no kernal):
 //     CRSR up, CRSR right, +    faster
 //     CRSR down, CRSR left, -   slower
+//     B / SHIFT+B               one ball more / fewer (4..16)
 //     R                         restart from the top of the intro
 //     Q, RUN/STOP               end the demo (resets the machine)
-// Holding a speed key auto-repeats every KEY_REPEAT frames. The bottom
+// Holding a speed or ball key auto-repeats every KEY_REPEAT frames. A
+// joystick in port 1 shares the matrix's column lines, so while it is
+// pushed the keyboard is ignored (RUN/STOP and Q still work).
 // The bottom TWO text rows are the menu: row 23 is a fixed legend of the
-// keys, row 24 carries the speed bar and is redrawn on change.
+// keys, row 24 carries the speed bar and ball count, redrawn on change.
 //
 // EDGE HANDLING
 // -------------
-// The vertical border is held open (see main_loop), so the playfield is
+// The vertical border is held open (see mux_irq), so the playfield is
 // the whole visible picture from top to bottom rather than the 25-row
 // text window. Hard bounce limits are X 22..322 and Y 56..250: the balls
 // fly over and below the status row, down into what would be the bottom
@@ -171,10 +203,11 @@
 // alone, so a ball hitting the right wall while moving down keeps moving
 // down - a clean reflection.
 //
-// Y 56 is a hardware floor, not a style choice. A sprite is triggered when
-// the low 8 bits of the raster match its Y, and PAL lines 256..311 repeat
-// the low bytes 0..55 - lines that are visible once the bottom border is
-// open. A ball at Y < 56 is therefore drawn a second time as a ghost near
+// Y 56 is a hardware floor on PAL, not a style choice. A sprite is
+// triggered when the low 8 bits of the raster match its Y, and PAL lines
+// 256..311 repeat the low bytes 0..55 - lines that are visible once the
+// bottom border is open. (NTSC only repeats 0..6 on lines 256..262, so it
+// could go higher; one limit for both keeps the two standards identical.) A ball at Y < 56 is therefore drawn a second time as a ghost near
 // the bottom of the screen. Verified in VICE: at MIN_Y 20 the top ball has
 // a twin in the bottom border, at 56 it does not.
 //
@@ -185,13 +218,16 @@
 //
 // BALL-TO-BALL COLLISIONS
 // -----------------------
-// After every physics step all 6 sprite pairs are tested in software
+// After every physics step, pairs of balls are tested in software
 // (the VIC's $d01e collision register only says *that* a sprite touched
 // something, not which one, and only for non-transparent pixels). Two
 // balls touch when the distance between their centers is under the
 // 20 px ball diameter, approximated as
 //       |dx| < 20  and  |dy| < 20  and  |dx| + |dy| < 30
-// (a box with the corners cut off - close enough to a circle).
+// (a box with the corners cut off - close enough to a circle). Only
+// pairs within 20 px in Y are tested at all (the Y-sorted ball_order makes
+// that a short walk), and only half of them each frame - see
+// check_collisions.
 // On contact each ball's velocity AND target are forced to point away
 // from the other ball on both axes. Forcing the sign (instead of simply
 // reversing) means overlapping balls always separate and never jitter or
@@ -243,21 +279,25 @@
 //                     bank, $d018 and $d016 back with DEN off, and the
 //                     balls are simply there when it comes on. See
 //                     intro.asm for the animation itself.
-//   * Color swap    - colliding balls exchange body colors, and their
-//                     A short cooldown stops the swap
-//                     bouncing back and forth while the balls separate.
+//   * Color swap    - colliding balls exchange body colors. A short
+//                     cooldown stops the swap bouncing back and forth
+//                     while the balls separate.
 //
 // FRAME TIMING
 // ------------
-// The main loop polls the raster ($d012) for line $fa, which is below the
-// last text row after all sprites have been drawn. Positions written at
-// that point are picked up cleanly on the next frame with no tearing. No
-// IRQs are used; the CPU has nothing else to do.
+// The intro is polled, with interrupts off. The demo is not: once init_mux
+// runs, every sprite write and the open-border trick happen in a raster
+// IRQ chain (mux_irq) - line 16 for band 0 and RSEL back on, one IRQ per
+// re-used sprite, line 248 for RSEL off - and the main loop only computes.
+// It builds a write list from one sorted snapshot, the top IRQ swaps it
+// in, and the main loop waits for that swap before starting the next
+// frame. A main loop that runs long just means the IRQ shows the previous
+// list again: a repeated frame, never a torn one.
 //
-// That same sync point is what holds the vertical border open: line 250 is
-// the last line before the VIC would raise its border flip-flop, so the
-// loop switches to 24 rows there and back to 25 once the frame's work is
-// done. See main_loop.
+// Measured on NTSC (VICE x64sc -ntsc, 600 frames each, balls at speed):
+//     8 balls   ~5000 cycles a frame average,  ~6100 worst
+//    12 balls   ~8400 average, ~10600 worst
+//    16 balls  ~12600 average, ~14400 worst  - of 17095; no late frames
 //
 //==================================================================
 
@@ -285,6 +325,8 @@ BasicUpstart2(start)            // emits a "10 SYS 8768" BASIC stub at $0801
 .label VIC_SPRITE_MCOLOR0   = $d025 // shared multicolor 0 (bit pair 01)
 .label VIC_SPRITE_MCOLOR1   = $d026 // shared multicolor 1 (bit pair 11)
 .label VIC_SPRITE_COLOR     = $d027 // sprite n color at $d027+n (bit pair 10)
+.label VIC_IRQ_STATUS       = $d019 // write 1s to acknowledge
+.label VIC_IRQ_ENABLE       = $d01a // bit 0 = raster IRQ
 
 .label VIC_IDLE_FETCH       = $3fff // last byte of VIC bank 0: the VIC's idle
                                     // fetch, i.e. what it reads in an opened
@@ -311,6 +353,9 @@ BasicUpstart2(start)            // emits a "10 SYS 8768" BASIC stub at $0801
 .label CIA2_PORT_A          = $dd00      // bits 0-1 = VIC bank select
 .label CIA2_DDR_A           = $dd02      // bits 0-1 must be outputs
 .label CIA2_ICR             = $dd0d      // NMI mask/latch
+.label IRQ_VECTOR           = $0314      // kernal IRQ vector: $ff48 saves
+                                         // A/X/Y then jmp ($0314)
+.label KERNAL_IRQ_EXIT      = $ea81      // pla/tay/pla/tax/pla/rti
 .label NMI_VECTOR           = $0318      // kernal NMI vector: $fe43 does
                                          // sei then jmp ($0318)
 
@@ -331,30 +376,25 @@ BasicUpstart2(start)            // emits a "10 SYS 8768" BASIC stub at $0801
 //------------------------------------------------------------------
 // Zero Page Variables
 //
-// Each per-sprite value is an 8-byte table indexed by X (X = sprite 0..7),
-// e.g. "lda x_lo, x". Zero page is used because indexed zero-page access
-// is one cycle faster and one byte shorter than absolute addressing.
+// Only single-byte globals live here now - the per-ball tables moved out
+// to BALL_STATE (absolute RAM) when the ball count went past 8: 24 tables
+// of 16 balls will not fit in zero page. Zero page is still used for the
+// globals because they are read constantly and (ptr),y has no absolute
+// form at all.
 //
 // $02..$8f belong to BASIC normally, but we never return to BASIC and
-// interrupts are disabled, so they are ours.
+// the kernal's IRQ handler never runs (sei through the intro, our own
+// IRQ in the demo), so they are ours.
 //
-// EIGHT BALLS IS WHAT ZERO PAGE WILL HOLD. Fifteen per-ball tables at 8
-// bytes each is 120 bytes, $02-$79, which leaves $7a-$94 for everything
-// global. There is no room for a ninth ball and none for a second table
-// per ball - which is the real reason the ghost trails had to go, quite
-// apart from wanting their sprites back.
+//   $02-$14  the intro's variables, plus ntsc / music_div / beat_hold
+//   $7a-$ad  the demo's globals, sort/collision scratch, the IRQ's state
+//   BALL_STATE (absolute, not zero page)  24 per-ball tables, see below
 //
-//   $02-$95  global state (RNG, timers, scratch, speed, keyboard, ptr)
-//   BALL_STATE (absolute, not zero page)  18 per-ball tables, see below
-//
-// THE INTRO'S OWN VARIABLES OVERLAP THIS GLOBAL BLOCK ($02-$10 plus
-// temp/temp2). play_intro runs to completion before start touches a
-// single ball byte, so the two are never live at the same time.
-// Nightshift has zero page scratch of its own and we have no
-// disassembly of it, so the evidence that the two do not collide is
-// empirical: the intro renders correctly under VICE. It has never been
-// checked on real hardware. If the tune is ever swapped for another,
-// this is the first thing to re-test.
+// THE INTRO'S OWN VARIABLES OVERLAP temp/temp2. play_intro runs to
+// completion before start touches a single ball byte, so the two are
+// never live at the same time. Nightshift's player uses only $f8/$f9 -
+// traced from its init and play entries - so it collides with neither.
+// If the tune is ever swapped for another, re-check that first.
 //------------------------------------------------------------------
 
 // Global state, all single bytes (nothing here is a per-ball array any
@@ -377,26 +417,19 @@ BasicUpstart2(start)            // emits a "10 SYS 8768" BASIC stub at $0801
 .label vsign        = $8c       // ScaleVel: sign of the input velocity
 .label speed        = $8d       // global speed level 1..16 (8 = base speed)
 .label key_timer    = $8e       // auto-repeat countdown while a key is held
-.label evx_lo       = $8f       // effective X velocity this frame, 8.8
-.label evx_hi       = $90
-.label evy_lo       = $91       // effective Y velocity this frame, 8.8
-.label evy_hi       = $92
+.label rescale_n    = $8f       // balls still to rescale after a speed
+                                // change (counts down, a few per frame)
+                                // $90-$92 free (were the evx/evy scratch,
+                                // now per-ball tables in BALL_STATE)
 .label key_shift    = $93       // nonzero if either shift key is down
 .label key_delta    = $94       // +1 / -1 speed change requested, 0 = none
 .label active_balls = $95       // how many of MAX_BALLS are in play, 4..16
 
-// Sprite multiplexing scratch: sort_balls' insertion sort, apply_band's
-// per-band raster write, and the busy-wait between bands. See BALL_STATE
-// above for ball_order itself (a per-ball ARRAY, so it lives there, not
-// here - these are all single bytes).
+// Sort and collision scratch. See BALL_STATE below for ball_order
+// itself (a per-ball ARRAY, so it lives there, not here).
 .label sort_i        = $96      // insertion sort: outer index i
 .label sort_j         = $97      // insertion sort: inner (shifting) index j
-.label band1_trigger  = $98      // raster line to wait for before band 1
-.label band_base      = $99      // apply_band: which ball_order slot its
-                                  // hardware sprite 0 starts at (0 or 8)
-.label band_slot      = $9a      // apply_band: hardware sprite index 0..7
-.label band_enable    = $9b      // apply_band: VIC_SPRITE_ENABLE being built
-.label band_msb       = $9c      // apply_band: VIC_SPRITE_X_MSB being built
+                                 // $98-$9c free (the polled bands' scratch)
 .label pair_a          = $9d      // check_collisions: ball A's identity,
                                    // held across the inner loop - kept
                                    // separate from check_pair's OWN
@@ -409,35 +442,53 @@ BasicUpstart2(start)            // emits a "10 SYS 8768" BASIC stub at $0801
                                    // timer, separate from key_timer so
                                    // holding one control never disturbs
                                    // the other's repeat cadence
+.label pair_ay        = $9f       // check_collisions: ball A's y_pix, the
+                                   // inner loop's pruning reference. Its
+                                   // own byte because check_pair and
+                                   // spawn_spark both use temp2 as scratch
+
+// Raster IRQ multiplexer state (see mux_irq). The IRQ owns these; the
+// main loop only ever touches dl_ready (and reads dl_front).
+.label dl_front       = $a0       // write list the IRQ is showing: 0 / 16
+.label dl_ready       = $a1       // main loop -> IRQ: the back list is
+                                   // complete, swap at the next top IRQ
+.label irq_e          = $a2       // next write-list entry to apply
+.label irq_end        = $a3       // one past the last entry this frame
+.label irq_bottom     = $a4       // 0 until the line-248 border write
+.label irq_phase      = $a5       // 0 = next IRQ is the top one
+.label bld_slot       = $a6       // build_list: scratch
+.label bld_e          = $a7       // build_list: next entry index
+.label bld_en         = $a8       // build_list: band 0's $d015
+.label bld_msb        = $a9       // build_list: band 0's $d010
+.label irq_line       = $aa       // mux_irq: the compare line just set
+.label bld_line       = $ab       // build_list: re-use entry's line
+.label bld_hw         = $ac       // build_list: re-use entry's sprite
+.label bld_msbbit     = $ad       // build_list: re-use entry's $d010 bit
 
 //------------------------------------------------------------------
 // BALL_STATE - the per-ball tables, OUT of zero page.
 //
-// The VIC has 8 hardware sprites; this demo now multiplexes MAX_BALLS
-// logical balls across them with a raster split (see apply_bands). Zero
-// page has no room for that: 15 tables x 16 balls is 240 bytes, more
-// than all of $02-$FF. So these live in ordinary RAM instead, reusing
-// the intro's dead memory - it is done with all of VIC bank 1 by the
-// time a single ball byte gets written, and the CPU can read/write
-// there regardless of VIC bank (bank-switching only changes what the
-// VIC CHIP fetches, never what the CPU sees). This is the same trick
-// the zero page block above already plays with the intro's own
-// variables.
+// The VIC has 8 hardware sprites; this demo multiplexes MAX_BALLS
+// logical balls across them with a raster IRQ (see mux_irq). Zero
+// page has no room for that: 18 tables x 16 balls is 288 bytes, more
+// than all of $02-$FF. So they live in ordinary RAM at $8400, just past
+// the last intro wave field. The CPU sees RAM there whatever VIC bank is
+// selected - bank switching only changes what the VIC CHIP fetches.
 //
-// $3000-$3fe7 (the four wave fields) looks like the obvious spot, and
-// was the first thing tried - but Main Code starts at $2240 and only
-// had about 40 bytes of headroom before $3000 even BEFORE this file's
-// sort/band routines were added, and KickAssembler hard-errors the
-// moment Main Code's own bytes reach an address intro_gfx.asm has
-// already claimed with `* = INTRO_WAVE_A`. Past the END of the intro's
-// memory instead - after intro_raster.asm's code and data, which ends
-// around $70d3 - there is nothing else in VIC bank 1 all the way to
-// $7fff: safe from Main Code's growth in either direction.
+// They used to sit on top of Intro Wave A, on the theory that
+// the intro is finished before the first ball byte is written. That is
+// only true once: R replays the intro, whose wave fields are assembled
+// in and never regenerated, so the second intro painted ball state as
+// colour indices. The .errorif lines after INTRO_WAVE_D keep the two
+// apart. Main Code (from $2240) can now grow all the way to the bitmap
+// at $4000 without touching either.
 //
 // Moving off zero page costs nothing per access: `lda table,x` is 4
 // cycles whether table is zero page or absolute (only zero-page,X is
 // special-cased by the 6502, and only for the NON-indexed forms this
-// file never uses) - one extra opcode byte, no extra cycles. `ptr`
+// file never uses) - one extra opcode byte, no extra cycles. The tables
+// are 16 bytes each from a page boundary, so no index crosses a page
+// and none pays the page-crossing cycle. `ptr`
 // above is the one table that could not move: (ptr),y has no absolute
 // form on the 6502.
 //
@@ -446,8 +497,14 @@ BasicUpstart2(start)            // emits a "10 SYS 8768" BASIC stub at $0801
 // change, not a relayout.
 //------------------------------------------------------------------
 .label MAX_BALLS    = 16        // compiled ceiling; active_balls <= this
-.label BALL_STATE   = $7200     // well past intro_raster.asm's own code
-                                 // and data, clear to $7fff - see above
+.label BALL_STATE   = $8400     // just past Intro Wave D ($8000-$83e7):
+                                 // free RAM (no cartridge, BASIC ROM is
+                                 // not until $a000). NOT on top of the
+                                 // wave fields - they are assembled-in
+                                 // data, and R restarts the intro, which
+                                 // reads them again. Ball tables written
+                                 // over wave A garbled the top 7 rows of
+                                 // every intro after the first.
 
 .label x_frac       = BALL_STATE + 0  * MAX_BALLS  // X pos, fraction (1/256 px)
 .label x_lo         = BALL_STATE + 1  * MAX_BALLS  // X pos, whole pixels (low 8)
@@ -466,16 +523,42 @@ BasicUpstart2(start)            // emits a "10 SYS 8768" BASIC stub at $0801
 .label anim_hi      = BALL_STATE + 14 * MAX_BALLS  //   bits 3-5 = current frame
 .label ball_ptr     = BALL_STATE + 15 * MAX_BALLS  // this ball's sprite-data
                                                      // pointer (block number),
-                                                     // written to hardware
-                                                     // only when its band comes
-                                                     // up - see apply_bands
+                                                     // copied into the write
+                                                     // list by build_list
 .label ball_color   = BALL_STATE + 16 * MAX_BALLS  // this ball's body color,
                                                      // same story
 .label ball_order   = BALL_STATE + 17 * MAX_BALLS  // ball indices, sorted
                                                      // ascending by y_pix each
                                                      // frame - see sort_balls
+.label evx_lo       = BALL_STATE + 18 * MAX_BALLS  // X velocity scaled by the
+.label evx_hi       = BALL_STATE + 19 * MAX_BALLS  // speed level, 8.8: what
+.label evy_lo       = BALL_STATE + 20 * MAX_BALLS  // the ball actually moves
+.label evy_hi       = BALL_STATE + 21 * MAX_BALLS  // per frame. Cached - see
+                                                     // scale_ball
+.label ease_left    = BALL_STATE + 22 * MAX_BALLS  // frames of easing left
+.label slot_free    = BALL_STATE + 23 * MAX_BALLS  // build_list: first line
+                                                     // each hardware sprite is
+                                                     // free again (8 used)
+.label BALL_TABLES  = 24
 
-// The intro's own variables, overlapping the ball tables (see above).
+// The multiplexer's write list, double buffered: the main loop fills the
+// back half while the IRQ shows the front half (dl_front = 0 or 16 picks
+// which). Entry 0-7 is band 0 - hardware sprite k = entry k, written all
+// at once by the top IRQ. Entries 8.. are re-uses, one per extra ball:
+// hardware sprite w_slot gets this ball once the raster reaches w_line.
+.label WRITE_LIST   = $8600
+.label w_x          = WRITE_LIST + 0 * $20   // X low 8 bits
+.label w_y          = WRITE_LIST + 1 * $20
+.label w_ptr        = WRITE_LIST + 2 * $20
+.label w_col        = WRITE_LIST + 3 * $20
+.label w_msb        = WRITE_LIST + 4 * $20   // hw_bit[slot] if X >= 256
+.label w_slot       = WRITE_LIST + 5 * $20   // entries 8..: hardware sprite
+.label w_line       = WRITE_LIST + 6 * $20   // entries 8..: raster line
+.label w_end        = WRITE_LIST + 7 * $20   // [0]/[16]: entry count
+.label w_en         = WRITE_LIST + 8 * $20   // [0]/[16]: band 0's $d015
+.label w_msb0       = WRITE_LIST + 9 * $20   // [0]/[16]: band 0's $d010
+
+// The intro's own variables (zero page; they share temp/temp2 with the demo).
 .label paint_page   = $02       // which 256-cell page the sweep is on
 .label wave_pg      = $03       // high byte of the active cell field
 .label text_phase   = $04       // position of the carved logo's glint
@@ -494,18 +577,21 @@ BasicUpstart2(start)            // emits a "10 SYS 8768" BASIC stub at $0801
 .label ripple_sh    = $11       // flying logo, ripple shift: 7 down to 4,
                                 // so the ripple fades in after the hold
 
+// Shared by the intro and the demo, set by detect_video in start.
+.label ntsc         = $12       // nonzero on an NTSC VIC (263 lines)
+.label music_div    = $13       // music_tick's 6-frame counter
+.label beat_hold    = $14       // nonzero on a frame music_tick skipped
+
 //------------------------------------------------------------------
 // Constants
 //------------------------------------------------------------------
 .label HW_SPRITES   = 8       // all eight the VIC has - fixed, always this
-.label BAND_SIZE     = HW_SPRITES     // balls per raster band = hardware
-                                        // sprites; see apply_bands
 .label ACTIVE_BALLS_MIN     = 4
 .label ACTIVE_BALLS_DEFAULT = 8       // the original ball count
 .label ACTIVE_BALLS_MAX     = MAX_BALLS
 
-// $d011 bit patterns. RSEL (bit 3) picks 25 rows or 24; the main loop
-// flips it every frame to hold the vertical border open (see main_loop).
+// $d011 bit patterns. RSEL (bit 3) picks 25 rows or 24; mux_irq
+// flips it every frame to hold the vertical border open (see mux_irq).
 .label CTRL1_25ROWS = $1b       // DEN on, RSEL 25 rows, YSCROLL 3 - normal
 .label CTRL1_24ROWS = $13       // same with RSEL cleared: 24 rows
 .label CTRL1_BLANK  = $0b       // DEN cleared: display off entirely
@@ -527,11 +613,16 @@ BasicUpstart2(start)            // emits a "10 SYS 8768" BASIC stub at $0801
 .label MIN_X        = 22        // left edge (ball touches border)
 .label MAX_X_LO     = 66        // right edge = 322 = $142 (MSB=1, lo=$42)
 .label MIN_Y        = 56        // top edge: the lowest Y with no ghost twin
-.label BAND1_LEAD   = 8         // lines of lead time band 1's raster wait
-                                 // gets before the topmost band-1 ball's
-                                 // own Y - apply_band costs well under a
-                                 // raster line's worth of cycles for its
-                                 // eight sprites, so this is generous
+.label TOP_LINE     = 16        // mux_irq's top IRQ: band 0 + RSEL on.
+                                 // After every bottom-border ball has
+                                 // been drawn on NTSC and PAL alike, and
+                                 // long before MIN_Y - see mux_irq
+.label BOTTOM_LINE  = 248       // mux_irq's border write: RSEL off in the
+                                 // 248-250 window
+.label SLOT_HOLD    = 23        // lines a sprite stays busy after its Y:
+                                 // 21 drawn + 1 start delay + 1 margin
+.label RE_MARGIN    = 3         // lines the IRQ needs between a sprite
+                                 // coming free and its next ball's Y
 .label MAX_Y        = 250       // bottom edge, deep in the opened border:
                                 // the disc's last row lands on line 270,
                                 // still well inside the visible picture
@@ -559,21 +650,20 @@ BasicUpstart2(start)            // emits a "10 SYS 8768" BASIC stub at $0801
 .label INTRO_VM     = $6000     // 1000 video matrix cells, painted by
                                 // paint_sweep. In hi-res each byte is two
                                 // colors: high nibble ink, low nibble paper
-// These four used to sit at $3000-$3fe7, immediately before the bitmap.
-// They moved here, overlapping BALL_STATE, when Main Code grew past
-// $3000 - see BALL_STATE's own comment. The VIC never fetches these
-// (paint_sweep reads them with the CPU only), so unlike the bitmap they
-// have no hardware reason to sit next to it, and reusing BALL_STATE's
-// footprint is the same "dead by the time the other user starts" trick
-// BALL_STATE already documents: play_intro (and every read of these
-// four fields) finishes completely before init_sprites writes the
-// first byte of ball state. Each still has to start on its OWN page
+// These four used to sit at $3000-$3fe7, immediately before the bitmap,
+// and moved up here when Main Code grew past $3000. The VIC never
+// fetches these (paint_sweep reads them with the CPU only), so unlike
+// the bitmap they have no hardware reason to sit next to it. They must
+// NOT share memory with BALL_STATE: they are assembled-in data, and R
+// replays the intro from them. Each still has to start on its OWN page
 // boundary - set_page's page_lo table assumes the field's low byte is
 // $00 - which is why they are $400 apart rather than packed at 1000.
-.label INTRO_WAVE_A = BALL_STATE          // = $7200; rings
-.label INTRO_WAVE_B = BALL_STATE + $400   // = $7600; 1 turn
-.label INTRO_WAVE_C = BALL_STATE + $800   // = $7a00; 3 turns
-.label INTRO_WAVE_D = BALL_STATE + $c00   // = $7e00; plasma - runs to $81e7,
+.label INTRO_WAVE_A = $7400   // row bands. From $7400, not right after
+.label INTRO_WAVE_B = $7800   // Intro Raster: that code segment needs
+.label INTRO_WAVE_C = $7c00   // room to grow (it ends ~$718d)
+.label INTRO_WAVE_D = $8000   // plasma - runs to $83e7,
+.errorif BALL_STATE < INTRO_WAVE_D + 1000, "BALL_STATE overlaps Intro Wave D"
+.errorif BALL_STATE + BALL_TABLES * MAX_BALLS > WRITE_LIST, "BALL_STATE runs into WRITE_LIST"
                                             // just past $8000. Free RAM: no
                                             // cartridge is ever present, so
                                             // nothing maps ROM there.
@@ -599,20 +689,26 @@ BasicUpstart2(start)            // emits a "10 SYS 8768" BASIC stub at $0801
 // The entry pose has to be the carved logo's position EXACTLY, or the
 // logo jumps the moment the carving goes dark and the sprites light up.
 // Bitmap pixel (px, py) is displayed at sprite coordinates (px + 24,
-// py + 51), so the carve at (64, 136) and (120, 160) means the sprites
-// must come up at (88, 187) and (144, 211). x_phase and y_phase are
+// py + 50) - YSCROLL 3 puts bitmap row 0 on raster 51, and a sprite
+// whose Y matches line N starts drawing on line N+1 - so the carve at
+// (64, 136) and (120, 160) means the sprites must come up at (88, 186)
+// and (144, 210). x_phase and y_phase are
 // chosen to put the sine exactly there at phase 0 - see intro.asm.
-.label FLOW_Y_BASE  = 84        // bottom of the flight path: Y runs
+.label FLOW_Y_BASE  = 83        // bottom of the flight path: Y runs
                                 // FLOW_Y_BASE .. FLOW_Y_BASE + 127, i.e.
-                                // 84..211, so it reaches the carved date
+                                // 83..210, so it reaches the carved date
 .label FLOW_T2_HOME = 0         // the home bob phase is baked into y_phase
-                                // the date at y=136 - see flow_logo_on
+                                // - see flow_logo_on
 
 // Speed control
 .label SPEED_MIN    = 1
 .label SPEED_MAX    = 16
 .label SPEED_DEFAULT = 4        // half of base speed
 .label KEY_REPEAT   = 6         // frames between repeats while a key is held
+.label EASE_FRAMES  = 64        // frames a new ball eases up to its heading:
+                                // the gap closes by 1/16 a frame, so ~46
+                                // frames take the largest one under 1/16 px
+.label RESCALE_PER_FRAME = 4    // balls rescale_some redoes per frame
 .label BAR_COL      = 4         // screen column of the first bar cell
 .label BAR_LEN      = 16        // one cell per speed level
 .label BALL_COUNT_COL = 24      // screen column of the ball-count's tens
@@ -667,9 +763,14 @@ shift:
     sta hi, x
 }
 
-// ScaleVel - out = vel * speed / 8, signed 16-bit. X must hold the sprite
-// index; out is a 2-byte zero page pair (not indexed). Uses Y, temp,
-// m0..m2, p0..p2, vsign.
+// ScaleVel - out = vel * speed / 8, signed 16-bit. X must hold the ball
+// index; out is a per-ball table pair, indexed by X like vel. Uses Y,
+// temp, m0..m2, p0..p2, vsign.
+//
+// It scales the MAGNITUDE and puts the sign back afterwards, so
+// ScaleVel(-v) is exactly -ScaleVel(v). That is what lets the result be
+// cached: a bounce that negates v negates the cached value too, instead
+// of paying ~300 cycles to recompute it (see scale_ball).
 //
 // The magnitude of vel is multiplied by the 5-bit speed with shift-and-add
 // into a 24-bit product, the product is shifted right 3, and the sign is
@@ -733,16 +834,16 @@ div_loop:
     sec                         // out = -product
     lda #$00
     sbc p0
-    sta outlo
+    sta outlo, x
     lda #$00
     sbc p0 + 1
-    sta outhi
+    sta outhi, x
     jmp done
 store:
     lda p0
-    sta outlo
+    sta outlo, x
     lda p0 + 1
-    sta outhi
+    sta outhi, x
 done:
 }
 
@@ -789,6 +890,8 @@ start:
     lda #>nmi_ignore
     sta NMI_VECTOR + 1
 
+    jsr detect_video            // NTSC or PAL: tune tempo, overture band
+
     // Clear the text screen to spaces so nothing but sprites is visible.
     // 1000 bytes = 4 x 256 with the last page overlapping ($06e8..$07e7),
     // which stops short of the sprite pointers at $07f8.
@@ -814,7 +917,7 @@ clear_loop:
     // The intro runs FIRST, because the SID player has zero page scratch of
     // its own and there is no guarantee it stays clear of ours. Everything
     // the demo needs is set up afterwards, once the tune has stopped.
-    jsr play_intro              // music + spiral bitmap, ends in text mode
+    jsr play_intro              // overture + sunset bitmap, ends in text mode
                                 // with the display still off
 
     // Seed the RNG. The xorshift generator sticks at zero, so a bit is
@@ -837,6 +940,10 @@ clear_loop:
     sta swap_cool               // the intro's variables share these bytes
     sta key_timer               // with the ball tables
     sta ball_key_timer
+    ldx #SPARK_SLOTS - 1        // no sparks: after R, slots still burning
+!:  sta spark_timer, x          // from the last run would "restore" old
+    dex                         // cells onto the fresh screen
+    bpl !-
     lda #SPEED_DEFAULT
     sta speed
 
@@ -861,124 +968,366 @@ clear_loop:
     lda #$00
     sta VIC_IDLE_FETCH
 
+    lda #$00
+    sta VIC_SPRITE_ENABLE       // the top IRQ turns on the ones in use
+    sta rescale_n               // at rest: the cache is already right
     lda #CTRL1_25ROWS           // DEN on: text mode, stars and status appear
     sta VIC_CONTROL1
-    lda #%11111111              // all eight balls on
-    sta VIC_SPRITE_ENABLE
+    jsr init_mux                // sprites -> raster IRQ; ends with cli
 
 //------------------------------------------------------------------
-// Main Loop - runs exactly once per frame (50 Hz PAL / 60 Hz NTSC)
+// Main Loop - one physics step per displayed frame (60 Hz NTSC, 50 PAL)
 //
-// Up to MAX_BALLS logical balls are multiplexed across the VIC's 8
-// hardware sprites, in up to 2 raster bands (see apply_band). Band 0
-// publishes at the top of the frame, same timing this used to be the
-// ONLY publish at - the previous frame's physics results, so the VIC
-// always reads a complete, consistent set of coordinates and the new
-// ones land next frame. Band 1, when there is one, has to publish LATER
-// - part way down the very frame it is about to be drawn in - so the
-// bulk of the frame's CPU work (update_sprites, sort_balls) is placed
-// BETWEEN the two publishes on purpose: that work has to happen
-// sometime, and doing it while the raster is travelling from band 0's
-// balls to band 1's is exactly the same lines that would otherwise be
-// spent idle in a busy-wait. See the sprite-multiplexing plan doc for
-// the cycle-budget reasoning this is built to satisfy.
+// The main loop never touches a sprite register. It steps the physics,
+// sorts the balls by Y, resolves collisions and then build_list turns
+// that ONE consistent snapshot into a write list for the multiplexer
+// IRQ (mux_irq), which does every sprite write at the raster line it
+// has to happen on. The list is double buffered: the main loop fills
+// the back half while the IRQ shows the front half, and the top IRQ
+// swaps them only once dl_ready says a list is complete.
+//
+// So the loop's cost no longer has to fit between two raster lines - it
+// only has to fit a frame, and if it ever does not, the IRQ simply shows
+// the last complete list again (a repeated frame, never a torn one).
+//
+// Sync: dl_ready goes 1 when build_list finishes and back to 0 when the
+// top IRQ takes the list, so "wait for dl_ready == 0" is "wait until the
+// list just built is on its way to the screen" - once per frame.
 //------------------------------------------------------------------
 main_loop:
-    lda #$fa                    // wait for raster line 250 (lower border)
-wait_raster:
-    cmp VIC_RASTER
-    bne wait_raster
+ml_wait:
+    lda dl_ready
+    bne ml_wait
 
-    // Hold the vertical border open. The VIC sets its vertical border
-    // flip-flop on the first line of the bottom border - 251 with RSEL=1,
-    // 247 with RSEL=0. Switching to 24 rows here on line 250 means the
-    // line it is now waiting for (247) is already behind us, so the
-    // flip-flop is never set: no bottom border this frame and no top
-    // border on the next one, and the sprites carry on into both.
-    lda #CTRL1_24ROWS
-    sta VIC_CONTROL1
-
-    // ...and back to 25 rows two lines later, so the next frame can do it
-    // again. This waits rather than restoring at the end of the frame's
-    // work: the legal window is line 252 to line 246 of the NEXT frame, and
-    // restoring after the work put it at line 166-198 (measured) - correct,
-    // but only because the work happens to take ~235 raster lines. Anything
-    // that made the loop heavier would slide that write into 247-251, set
-    // the flip-flop and flash a border top and bottom. Two lines of waiting
-    // costs ~130 cycles and makes the border independent of the workload.
-    lda #$fc
-rs_wait:
-    cmp VIC_RASTER
-    bne rs_wait
-    lda #CTRL1_25ROWS
-    sta VIC_CONTROL1
-
-    // Band 0: publish last frame's TOP-of-frame balls (ball_order[0..7],
-    // lowest Y first) right at the top, same timing apply_positions
-    // always used - the raster is not due at MIN_Y for a good while yet.
-    lda #$00
-    jsr apply_band
-    jsr check_exit              // RUN/STOP quits the demo
+    jsr check_exit              // RUN/STOP / Q quit, R restarts
     jsr update_input            // keyboard: speed level, ball count
-
-    // The bulk of the frame's CPU work goes HERE, between band 0's
-    // publish and band 1's - filling exactly the raster lines that have
-    // to elapse anyway for the picture to reach band 1's balls, rather
-    // than idling through them. update_sprites computes NEXT frame's
-    // positions (the usual one-frame pipeline - see the header above);
-    // sort_balls immediately re-sorts them fresh, which is also what
-    // decides band 1's trigger line below and what check_collisions
-    // sweeps after band 1 fires.
+    jsr rescale_some            // catch up after a speed change
     jsr update_sprites          // physics, edges, animation frame
-    jsr sort_balls               // fresh ball_order for band 1 and collisions
-
-    // Band 1: only if there IS one - active_balls <= HW_SPRITES means
-    // everything fit in band 0 and there is nothing more to publish.
-    lda active_balls
-    cmp #HW_SPRITES + 1
-    bcc ml_no_band1
-
-    ldy #HW_SPRITES              // ball_order[8]: the topmost band-1 ball
-    lda ball_order, y
-    tax
-    lda y_pix, x
-    sec
-    sbc #BAND1_LEAD
-    bcs ml_trigger_ok             // no borrow: still non-negative
-    lda #MIN_Y                    // underflowed - this ball is already
-ml_trigger_ok:                    // right near the top; clamp instead
-    cmp #MIN_Y
-    bcs ml_trigger_store
-    lda #MIN_Y                    // never trigger inside the ambiguous
-ml_trigger_store:                 // low-byte range PAL lines 256-311 share
-    sta band1_trigger             // with 0-55 - see MIN_Y's own comment
-
-    lda band1_trigger
-    jsr wait_raster_a
-    lda #HW_SPRITES
-    jsr apply_band
-ml_no_band1:
-
-    // Not time-critical from here on - nothing below touches a VIC
-    // register, so it can take however long it takes, same as before.
-    jsr check_collisions         // ball-to-ball contact, push apart
-    jsr update_effects           // impact sparks, twinkling stars
-    jsr update_sound             // age the ping cooldown
+    jsr sort_balls              // ball_order ascending by Y
+    jsr check_collisions        // ball-to-ball contact, push apart
+    jsr build_list              // snapshot -> back write list, dl_ready=1
+    jsr update_effects          // impact sparks, twinkling stars
+    jsr update_sound            // age the ping cooldown
     inc frame_count
-
-    // Guard against running twice in one frame: if the update ever
-    // finished while the raster was still on line $fa, the loop above
-    // would fire again immediately. Wait for the raster to move on.
-    lda #$fa
-wait_leave:
-    cmp VIC_RASTER
-    beq wait_leave
-
     jmp main_loop
 
 //------------------------------------------------------------------
+// init_mux - first write list, then hand the sprites to the raster IRQ.
+// Called from start with interrupts still disabled; ends with cli.
+//------------------------------------------------------------------
+init_mux:
+    lda #$00
+    sta dl_front                // IRQ shows half 0 (empty: $d015 = 0)
+    sta dl_ready
+    sta irq_phase               // first IRQ is the top one
+    sta w_en                    // half 0 shows nothing until the swap
+    sta w_msb0
+    lda #HW_SPRITES
+    sta w_end                   // and has no re-use entries
+    jsr sort_balls
+    jsr build_list              // half 16, dl_ready = 1
+
+    lda #<mux_irq
+    sta IRQ_VECTOR
+    lda #>mux_irq
+    sta IRQ_VECTOR + 1
+    lda #TOP_LINE
+    sta VIC_RASTER              // compare line, bit 8 = $d011 bit 7 = 0
+    lda #CTRL1_25ROWS
+    sta VIC_CONTROL1
+    lda #$01
+    sta VIC_IRQ_ENABLE          // raster IRQ only (CIA 1 is masked)
+    sta VIC_IRQ_STATUS          // drop anything already latched
+    cli
+    rts
+
+//------------------------------------------------------------------
+// mux_irq - the sprite multiplexer and the open border, on a raster IRQ
+// chain. Entered through the kernal ($ff48 has saved A/X/Y), left through
+// $ea81, which restores them.
+//
+// TOP (irq_phase 0, line TOP_LINE = 16): back to 25 rows, swap in a fresh
+// write list if one is ready, write band 0 - hardware sprites 0-7 - in
+// one go, then schedule the chain. Line 16 is the earliest line that is
+// safe on BOTH standards: a ball as low as MAX_Y = 250 is drawn on lines
+// 251-271, which on NTSC (263 lines) runs on to line 8 of the next frame
+// and on PAL (312) ends at 271. And it is well above MIN_Y = 56, the
+// highest a band 0 ball can start. Writing band 0 at line 252, as the
+// polled version did, rewrote sprites that were still being drawn in
+// the open bottom border.
+//
+// CHAIN (irq_phase 1): two kinds of event, in raster order -
+//   - re-use entries: hardware sprite w_slot takes the ball in that
+//     entry once the raster reaches w_line, the first line after the
+//     sprite's previous ball has finished (build_list works that out);
+//   - BOTTOM_LINE (248): RSEL off, which holds the vertical border open.
+//     The VIC sets its border flip-flop on line 247 with RSEL=0 or line
+//     251 with RSEL=1; switching to RSEL=0 in 248-250 means the line it
+//     now waits for is already past, so no bottom border this frame and
+//     no top border next frame. The top IRQ switches RSEL back on.
+// The handler applies everything that is due, then sets the compare line
+// for the next event. If that line has already gone by (several entries
+// due together), it loops instead of returning: a compare line that is
+// already past would not fire until the next frame and stall the chain.
+//------------------------------------------------------------------
+mux_irq:
+    lda #$01
+    sta VIC_IRQ_STATUS          // acknowledge the raster IRQ
+    lda irq_phase
+    beq mi_top
+    jmp mi_loop
+
+mi_top:
+    lda #CTRL1_25ROWS           // 25 rows again, ready for next line 248
+    sta VIC_CONTROL1
+    lda dl_ready
+    beq mi_keep                 // main loop late: show the old list again
+    lda dl_front
+    eor #$10
+    sta dl_front
+    lda #$00
+    sta dl_ready                // -> main loop may build the next one
+mi_keep:
+    ldx dl_front
+    .for (var k = 0; k < 8; k++) {
+        lda w_x + k, x
+        sta VIC_SPRITE_X + k * 2
+        lda w_y + k, x
+        sta VIC_SPRITE_Y + k * 2
+        lda w_ptr + k, x
+        sta SPRITE_PTRS + k
+        lda w_col + k, x
+        sta VIC_SPRITE_COLOR + k
+    }
+    lda w_en, x
+    sta VIC_SPRITE_ENABLE
+    lda w_msb0, x
+    sta VIC_SPRITE_X_MSB
+    txa
+    clc
+    adc #HW_SPRITES
+    sta irq_e                   // first re-use entry
+    lda w_end, x
+    sta irq_end
+    lda #$00
+    sta irq_bottom
+    lda #$01
+    sta irq_phase
+    jmp mi_schedule
+
+mi_loop:
+    lda irq_bottom
+    bne mi_entries
+    lda VIC_RASTER
+    cmp #BOTTOM_LINE
+    bcc mi_entries
+    lda #CTRL1_24ROWS           // open the border - first, it has a window
+    sta VIC_CONTROL1            // of three lines and entries can wait
+    inc irq_bottom
+mi_entries:
+    ldx irq_e
+    cpx irq_end
+    bcs mi_schedule             // no entries left
+    lda irq_bottom
+    bne mi_apply                // past the bottom: anything left is overdue
+    lda VIC_RASTER
+    cmp w_line, x
+    bcc mi_schedule             // not due yet
+mi_apply:
+    ldy w_slot, x
+    lda w_ptr, x
+    sta SPRITE_PTRS, y
+    lda w_col, x
+    sta VIC_SPRITE_COLOR, y
+    lda VIC_SPRITE_X_MSB        // this sprite's bit only - the other seven
+    and msb_clear, y            // are still showing their own balls
+    ora w_msb, x
+    sta VIC_SPRITE_X_MSB
+    tya
+    asl
+    tay
+    lda w_x, x
+    sta VIC_SPRITE_X, y
+    lda w_y, x                  // Y last: it is what arms the sprite
+    sta VIC_SPRITE_Y, y
+    inc irq_e
+    jmp mi_loop
+
+mi_schedule:
+    ldx irq_e
+    cpx irq_end
+    bcs mi_no_entry
+    lda w_line, x               // next entry's line...
+    ldy irq_bottom
+    bne mi_set
+    cmp #BOTTOM_LINE            // ...unless the border write comes first
+    bcc mi_set
+    lda #BOTTOM_LINE
+    bne mi_set
+mi_no_entry:
+    lda irq_bottom
+    bne mi_to_top
+    lda #BOTTOM_LINE
+mi_set:
+    sta VIC_RASTER
+    sta irq_line
+    lda VIC_RASTER
+    cmp irq_line
+    bcs mi_loop                 // already there or past: do it now
+    jmp KERNAL_IRQ_EXIT
+mi_to_top:
+    lda #$00
+    sta irq_phase
+    lda #TOP_LINE
+    sta VIC_RASTER
+    lda #$01                    // writing $d012 with the line the raster is
+    sta VIC_IRQ_STATUS          // ON latches an IRQ at once: a mi_set that
+    jmp KERNAL_IRQ_EXIT         // hit 248 exactly would otherwise run mi_top
+                                // on line ~249. Nothing but line 16 is due.
+
+//------------------------------------------------------------------
+// build_list - turn this frame's sorted balls into the back write list.
+//
+// Band 0 is ball_order[0..7], the eight highest balls, on hardware
+// sprites 0-7. Ball ball_order[i] for i >= 8 re-uses hardware sprite
+// i & 7, i.e. the sprite of the ball eight places above it in Y order -
+// the sprite that comes free earliest, so round robin is as good as a
+// search while nothing is skipped, and far cheaper. slot_free[k] is the
+// first raster line after sprite k's current ball has been drawn (its
+// Y + 21 lines, + 2 for the VIC's one-line start delay and a line of
+// margin). The re-use is only possible if that line is at least
+// RE_MARGIN lines above the new ball's own Y, so the IRQ has time to
+// write the sprite before the raster gets there; if not, the ball is
+// left out of this frame (it still moves and collides - it just is not
+// drawn) and the sprite stays with its old ball. Because the list is
+// sorted by Y, the entries' w_line come out ascending, which is the
+// order the IRQ chain walks them in.
+//
+// Uses A/X/Y, temp (the back half's base), bld_*.
+//------------------------------------------------------------------
+build_list:
+    lda dl_front
+    eor #$10
+    sta temp                    // back half: 0 or 16
+    lda #$00
+    sta bld_en
+    sta bld_msb
+    sta bld_slot                // band 0: slot = ball_order index
+
+bl_band0:
+    lda bld_slot
+    cmp active_balls
+    bcs bl_band0_done
+    cmp #HW_SPRITES
+    bcs bl_band0_done
+    tay
+    ldx ball_order, y           // X = ball identity
+    lda hw_bit, y
+    ora bld_en
+    sta bld_en
+    lda x_msb, x
+    beq bl_b0_lo
+    lda hw_bit, y
+    ora bld_msb
+    sta bld_msb
+bl_b0_lo:
+    lda y_pix, x
+    clc
+    adc #SLOT_HOLD              // first line this sprite is free again
+    bcc !+
+    lda #$ff                    // runs past 255: not re-usable this frame
+!:  sta slot_free, y
+    tya
+    clc
+    adc temp
+    tay                         // Y = write list index
+    lda x_lo, x
+    sta w_x, y
+    lda y_pix, x
+    sta w_y, y
+    lda ball_ptr, x
+    sta w_ptr, y
+    lda ball_color, x
+    sta w_col, y
+    inc bld_slot
+    jmp bl_band0
+bl_band0_done:
+
+    lda #HW_SPRITES
+    sta bld_e                   // next entry (relative to the half)
+    sta bld_slot                // ball_order index, from 8 on
+bl_reuse:
+    lda bld_slot
+    cmp active_balls
+    bcc !+
+    jmp bl_done
+!:
+    and #HW_SPRITES - 1
+    tay                         // Y = hardware sprite: ball_order index & 7
+    ldx bld_slot
+    lda ball_order, x
+    tax                         // X = ball identity
+    lda slot_free, y
+    clc
+    adc #RE_MARGIN
+    bcs bl_skip                 // free line + margin > 255: no room
+    cmp y_pix, x
+    beq !+
+    bcs bl_skip                 // free + margin > ball Y: no room
+!:
+    sty bld_hw                  // room: hardware sprite Y takes this ball
+    lda slot_free, y
+    sta bld_line                // ...from the line it comes free
+    lda y_pix, x
+    clc
+    adc #SLOT_HOLD
+    bcc !+
+    lda #$ff
+!:  sta slot_free, y            // and is busy again until this one is drawn
+    lda x_msb, x
+    beq !+
+    lda hw_bit, y               // A = this sprite's $d010 bit, or 0
+!:  sta bld_msbbit
+    lda bld_e
+    clc
+    adc temp
+    tay                         // Y = write list index
+    lda bld_line
+    sta w_line, y
+    lda bld_hw
+    sta w_slot, y
+    lda bld_msbbit
+    sta w_msb, y
+    lda x_lo, x
+    sta w_x, y
+    lda y_pix, x
+    sta w_y, y
+    lda ball_ptr, x
+    sta w_ptr, y
+    lda ball_color, x
+    sta w_col, y
+    inc bld_e
+bl_skip:
+    inc bld_slot
+    jmp bl_reuse
+
+bl_done:
+    ldx temp
+    lda bld_en
+    sta w_en, x
+    lda bld_msb
+    sta w_msb0, x
+    txa
+    clc
+    adc bld_e
+    sta w_end, x                // absolute: half base + entry count
+    lda #$01
+    sta dl_ready
+    rts
+
+//------------------------------------------------------------------
 // The opening sequence lives in its own files: intro.asm is the code
-// (music + spiral bitmap + the handoff to text mode), intro_gfx.asm
+// (music + sunset bitmap + the handoff to text mode), intro_gfx.asm
 // generates the bitmap at assembly time, music.asm imports the tune.
 // play_intro is called once from start, before anything else is set up.
 //------------------------------------------------------------------
@@ -1001,6 +1350,83 @@ nmi_ignore:
     rti
 
 //------------------------------------------------------------------
+// detect_video - ntsc = nonzero on an NTSC machine. Interrupts off.
+//
+// Runs the raster up into its 9th bit (lines 256+) and keeps the highest
+// low byte it sees there: an NTSC 6567R8 tops out at line $106 (low byte
+// 6; the older R56A at 4), a PAL 6569 at $137 (low byte $37). Anything
+// under $20 is NTSC. The max is kept, not the last value read, because
+// the raster can wrap to line 0 between reading $d012 and testing bit 8.
+//------------------------------------------------------------------
+detect_video:
+    lda #$00
+    sta ntsc                    // scratch: the highest low byte seen
+dv_wait:
+    bit VIC_CONTROL1            // bit 7 = raster bit 8
+    bpl dv_wait                 // wait for line 256+
+dv_track:
+    lda VIC_RASTER
+    cmp ntsc
+    bcc !+
+    sta ntsc
+!:  bit VIC_CONTROL1
+    bmi dv_track                // until the raster wraps to line 0
+    lda ntsc
+    ldx #$00
+    cmp #$20
+    bcs !+                      // PAL: ntsc = 0
+    inx                         // NTSC: ntsc = 1
+!:  stx ntsc
+    lda #$05
+    sta music_div
+    lda #$00
+    sta beat_hold
+    rts
+
+//------------------------------------------------------------------
+// music_tick - one tick of the tune, at the tune's own tempo.
+//
+// Nightshift is a PAL tune (its PSID header says so) written for one
+// play call per 50 Hz frame. Called once per 60 Hz NTSC frame it runs 20%
+// fast, so on NTSC this skips every sixth call: 5 plays in 6 frames is
+// 50 a second. Every frame-locked caller uses this, never MUSIC_PLAY.
+//------------------------------------------------------------------
+music_tick:
+    lda #$00
+    sta beat_hold
+    lda ntsc
+    beq mt_play                 // PAL: every frame
+    dec music_div
+    bpl mt_play                 // 5, 4, 3, 2, 1, 0: play
+    lda #$05                    // -1: the sixth frame - skip it
+    sta music_div
+    inc beat_hold               // and tell the intro's timers to hold
+    rts
+mt_play:
+    jmp MUSIC_PLAY
+
+// BeatDec - dec v, except on a frame music_tick skipped (beat_hold).
+//
+// The intro's phase lengths are counted in frames and written to land on
+// the tune's beats. Slowing the tune to its PAL tempo on NTSC would leave
+// a 60 Hz frame count finishing 20% early, off the beat - so every
+// duration counter holds still on the skipped frame, and the intro's
+// timing stays in music ticks on both standards. (The animation itself
+// still moves every frame: only WHEN things change is locked to the tune.)
+//
+// Leaves Z as `dec v` would for the usual `BeatDec(v) / bne loop`: on a
+// held frame v is reloaded, and it is never 0 mid-count.
+.macro BeatDec(v) {
+    lda beat_hold
+    bne hold
+    dec v
+    jmp done
+hold:
+    lda v
+done:
+}
+
+//------------------------------------------------------------------
 // check_exit - RUN/STOP ends the demo (the repo-wide demo exit key)
 //
 // RUN/STOP is row 7 ($7f on port A), column bit 7, active low like every
@@ -1017,31 +1443,56 @@ check_exit:
     cmp #$c0
     bne exit_demo               // either bit clear = that key is down
 
+    jsr joy1_active             // a joystick in port 1 pulls the same
+    bne ce_done                 // column lines: down would read as R
     lda #$fb                    // row 2: R restarts from the very beginning
     sta CIA1_PORT_A
     lda CIA1_PORT_B
     and #$02                    // R is row $fb, bit 1
     beq restart_demo
+ce_done:
 
     lda #$ff                    // deselect all rows again
     sta CIA1_PORT_A
     rts
 
 //------------------------------------------------------------------
+// joy1_active - Z clear if a joystick in control port 1 is pushed or
+// fired. Port 1 is wired onto the keyboard's column lines ($dc01), so
+// with no row selected any low bit there is the joystick, not a key.
+// RUN/STOP and Q (bits 7 and 6) are read before this is consulted: the
+// joystick only drives bits 0-4, so the exit keys always work.
+//------------------------------------------------------------------
+joy1_active:
+    lda #$ff
+    sta CIA1_PORT_A             // no keyboard row selected
+    lda CIA1_PORT_B
+    and #$1f                    // up, down, left, right, fire
+    cmp #$1f
+    rts
+
+//------------------------------------------------------------------
 // restart_demo - R: run the whole thing again from the intro.
 //
 // Called from check_exit, so it works during the intro as well as during
-// the demo. Everything the program needs is set up by start, and the
-// intro's zero page overlaps the ball tables anyway, so there is nothing
-// to tear down but the hardware: the SID has to be silenced (the intro
-// re-initialises the tune, but a ping left gated would carry over the
-// cut) and the sprites hidden before the mode switch.
+// the demo. Everything the program needs is set up by start, so there is
+// little to tear down but the hardware: the multiplexer IRQ has to stop
+// (the intro runs polled, interrupts off), the SID has to be silenced
+// (the intro re-initialises the tune, but a ping left gated would carry
+// over the cut) and the sprites hidden before the mode switch. The intro's
+// wave fields are assembled-in data, so nothing of the demo's may sit on
+// top of them - see BALL_STATE.
 //
 // The wait for R to come back up matters: check_exit runs every frame, so
 // without it holding the key down would restart the intro on every frame
 // and the screen would sit frozen on its first black frame.
 //------------------------------------------------------------------
 restart_demo:
+    sei                         // the intro runs without interrupts
+    lda #$00
+    sta VIC_IRQ_ENABLE          // and without the multiplexer
+    lda #$01
+    sta VIC_IRQ_STATUS
     lda #$00
     ldx #$18                    // silence all 25 SID registers
 rd_sid:
@@ -1061,6 +1512,11 @@ rd_release:
     jmp start
 
 exit_demo:
+    sei                         // no more multiplexer IRQs: they would run
+    lda #$00                    // on the kernal's vectors mid-reset
+    sta VIC_IRQ_ENABLE
+    lda #$01
+    sta VIC_IRQ_STATUS
     lda #$00
     ldx #$18                    // silence all 25 SID registers
 ed_loop:
@@ -1087,17 +1543,13 @@ ed_loop:
 // separate "activate ball N" path that re-inits them on demand.
 //------------------------------------------------------------------
 init_sprites:
-    lda #%11111111              // all eight HARDWARE sprites are always
-    sta VIC_SPRITE_ENABLE       // on - multiplexing reprograms what they
-    sta VIC_SPRITE_MULTI        // show, never how many are enabled
+    lda #%11111111              // every hardware sprite multicolor; which
+    sta VIC_SPRITE_MULTI        // are ENABLED is the top IRQ's job
 
     // Point every hardware sprite at frame 0 before anything can be
-    // displayed. apply_bands rewrites these every frame once a ball is
-    // assigned to that slot, but it does not run until after start has
-    // enabled the display - so without this the first displayed frame
-    // draws all eight from whatever block $07f8-$07ff held at load time.
-    // This is the 8 HARDWARE registers, not MAX_BALLS - $07f8-$07ff is
-    // always exactly 8 bytes regardless of how many balls are in play.
+    // displayed. The multiplexer IRQ rewrites these every frame, but only
+    // once init_mux has started it - and $07f8-$07ff is exactly 8 bytes
+    // whatever the ball count.
     ldx #HW_SPRITES - 1
     lda #SPRITE_PTR_BASE
 init_ptrs:
@@ -1106,7 +1558,7 @@ init_ptrs:
     bpl init_ptrs
 
     lda #$00
-    sta VIC_SPRITE_X_MSB        // all X < 256 until apply_bands runs
+    sta VIC_SPRITE_X_MSB        // all X < 256 until the IRQ takes over
     sta VIC_SPRITE_EXPAND_X     // normal size
     sta VIC_SPRITE_EXPAND_Y
     sta VIC_SPRITE_PRIORITY     // sprites in front of background
@@ -1119,10 +1571,8 @@ init_ptrs:
     sta VIC_SPRITE_MCOLOR1
 
     // Every ball's LOGICAL body color (bit pair 10). Not the hardware
-    // register - that gets written per band, from ball_color, by
-    // apply_bands. Writing VIC_SPRITE_COLOR directly here would only
-    // ever be seen for the balls that happen to land in band 0 on the
-    // very first frame.
+    // register - mux_irq writes that from the write list, whichever
+    // hardware sprite the ball lands on this frame.
     ldx #MAX_BALLS - 1
 init_colors:
     lda sprite_colors, x
@@ -1162,23 +1612,44 @@ init_loop:
     sta vx_hi, x
     sta vy_lo, x
     sta vy_hi, x
+    sta evx_lo, x               // at rest, so the scaled cache is 0 too
+    sta evx_hi, x
+    sta evy_lo, x
+    sta evy_hi, x
+    lda #EASE_FRAMES
+    sta ease_left, x
     jsr new_heading             // sets tvx/tvy
 
     // Random spin phase so the balls don't all show the same frame.
     jsr get_random
     sta anim_hi, x
+    lsr                         // and the matching sprite frame, so the
+    lsr                         // first write list (built in init_mux,
+    lsr                         // BEFORE update_sprites) shows a ball,
+    and #$07                    // not whatever bytes sat in ball_ptr
+    clc
+    adc #SPRITE_PTR_BASE
+    sta ball_ptr, x
     lda #$00
     sta anim_lo, x
 
     dex
     bpl init_loop
 
-    // ball_order starts as the identity permutation (slot i holds ball
-    // i). sort_balls only ever permutes entries 0..active_balls-1 among
-    // THEMSELVES, so this is the only place that ever needs to write it
-    // from scratch - raising active_balls later just widens the range
-    // sort_balls sorts; the newly-exposed tail slot already holds its
-    // own ball's index, ready to be walked into position next frame.
+    // Fall through: ball_order starts as the identity permutation.
+
+//------------------------------------------------------------------
+// reset_order - ball_order = 0, 1, .. MAX_BALLS-1 (slot i holds ball i)
+//
+// update_sprites moves ball IDENTITIES 0..active_balls-1, while
+// sort_balls, build_list and check_collisions use whatever identities
+// sit in ball_order[0..active_balls-1]. Those are only the same set
+// while the slots are a permutation of 0..n-1 - which a sorted list
+// stops being the moment active_balls changes (after SHIFT+B, slots
+// 0..n-2 hold the n-1 HIGHEST balls, not balls 0..n-2). So every change
+// of active_balls calls this; the next sort_balls re-sorts from here.
+//------------------------------------------------------------------
+reset_order:
     ldx #MAX_BALLS - 1
 init_order:
     txa
@@ -1191,9 +1662,12 @@ init_order:
 // update_sprites - one physics step for every ball
 //
 // Per ball, in order:
-//   1.  ease base velocity toward target (only matters during start-up)
-//   1b. scale base velocity by the speed level -> evx/evy (this frame's
-//       actual movement, in 8.8 pixels)
+//   1.  while ease_left > 0 (a ball's first EASE_FRAMES frames in play):
+//       ease base velocity toward target, then rescale it by the speed
+//       level into evx/evy. After that evx/evy are a CACHE - only a speed
+//       change (rescale_some) or a negation (bounce, push) touches them.
+//       This is the bulk of the multiplexer's budget: easing plus two
+//       ScaleVels was ~900 of the ~1150 cycles a ball used to cost.
 //   2.  integrate position (position += effective velocity)
 //   3.  edge clamp / bounce (flips the base velocity and target)
 //   4.  update spin accumulator and pick the animation frame
@@ -1202,13 +1676,17 @@ update_sprites:
     ldx active_balls            // runtime count now, not a constant - only
     dex                         // the balls actually in play get stepped,
 update_loop:                    // so raising/lowering it changes the cost
-    //---- 1. Ease velocity toward target ----
+    //---- 1. Ease velocity toward target, while the ball spins up ----
+    lda ease_left, x
+    beq us_eased
+    dec ease_left, x
     EaseVelocity(vx_lo, vx_hi, tvx_lo, tvx_hi)
     EaseVelocity(vy_lo, vy_hi, tvy_lo, tvy_hi)
-
-    //---- 1b. Scale by the global speed level ----
-    ScaleVel(vx_lo, vx_hi, evx_lo, evx_hi)
-    ScaleVel(vy_lo, vy_hi, evy_lo, evy_hi)
+    lda ease_left, x
+    and #$03                    // rescale every 4th frame of the ramp
+    bne us_eased                // (and on its last, ease_left = 0): the
+    jsr scale_ball              // cache lags by 3 frames, nobody can tell
+us_eased:
 
     //---- 2a. Integrate X ----
     // X position is 3 bytes (msb:lo:frac) but velocity is only 2 bytes,
@@ -1216,12 +1694,12 @@ update_loop:                    // so raising/lowering it changes the cost
     // add $00 for positive velocity, $ff for negative (plus carry).
     clc
     lda x_frac, x
-    adc evx_lo
+    adc evx_lo, x
     sta x_frac, x
     lda x_lo, x
-    adc evx_hi
+    adc evx_hi, x
     sta x_lo, x
-    lda evx_hi
+    lda evx_hi, x
     and #$80                    // isolate the sign bit (does not touch C)
     beq x_sign_pos              // positive: extension byte is $00 (in A)
     lda #$ff                    // negative: extension byte is $ff
@@ -1233,10 +1711,10 @@ x_sign_pos:
     //---- 2b. Integrate Y (plain 16-bit add, Y never exceeds 8 bits) ----
     clc
     lda y_frac, x
-    adc evy_lo
+    adc evy_lo, x
     sta y_frac, x
     lda y_pix, x
-    adc evy_hi
+    adc evy_hi, x
     sta y_pix, x
 
     //---- 3a. X edge bounce ----
@@ -1281,17 +1759,17 @@ y_ok:
     // way; left or up the other. The accumulator wraps naturally.
     clc
     lda anim_lo, x
-    adc evx_lo
+    adc evx_lo, x
     sta anim_lo, x
     lda anim_hi, x
-    adc evx_hi
+    adc evx_hi, x
     sta anim_hi, x
     clc
     lda anim_lo, x
-    adc evy_lo
+    adc evy_lo, x
     sta anim_lo, x
     lda anim_hi, x
-    adc evy_hi
+    adc evy_hi, x
     sta anim_hi, x              // A = anim_hi (whole pixels travelled)
 
     lsr                         // /8: one frame per 8 pixels of travel
@@ -1300,14 +1778,43 @@ y_ok:
     and #$07                    // frame 0..7
     clc
     adc #SPRITE_PTR_BASE        // block number = $80 + frame
-    sta ball_ptr, x              // this ball's LOGICAL pointer - written to
-                                  // hardware only when apply_band gets to
-                                  // this ball's band, not here directly
+    sta ball_ptr, x              // this ball's LOGICAL pointer - the IRQ
+                                  // writes it to whichever hardware
+                                  // sprite the ball lands on
 
     dex
     bmi update_done
     jmp update_loop             // loop body > 128 bytes, so jmp not bne
 update_done:
+    rts
+
+//------------------------------------------------------------------
+// scale_ball - evx/evy[X] = vx/vy[X] * speed / 8. Preserves X.
+//
+// rescale_some - after a speed change, rescale up to RESCALE_PER_FRAME
+// balls per frame (all MAX_BALLS, active or not, so a ball switched on
+// later already has the right cached velocity). Spread over frames
+// because doing all 16 at once is ~9600 cycles: more than half an NTSC
+// frame in one go, for a change nobody can see take 4 frames instead
+// of 1.
+//------------------------------------------------------------------
+scale_ball:
+    ScaleVel(vx_lo, vx_hi, evx_lo, evx_hi)
+    ScaleVel(vy_lo, vy_hi, evy_lo, evy_hi)
+    rts
+
+rescale_some:
+    lda #RESCALE_PER_FRAME
+    sta temp2                   // budget for this frame
+rsc_loop:
+    ldx rescale_n
+    beq rsc_done
+    dex
+    stx rescale_n
+    jsr scale_ball
+    dec temp2
+    bne rsc_loop
+rsc_done:
     rts
 
 //------------------------------------------------------------------
@@ -1323,6 +1830,7 @@ reverse_x:
     lda #$00
     sta x_frac, x
     Negate16(vx_lo, vx_hi)
+    Negate16(evx_lo, evx_hi)    // keep the cache in step (see ScaleVel)
     lda vx_hi, x
     eor tvx_hi, x               // bit 7 set => signs differ
     bpl rx_done
@@ -1335,6 +1843,7 @@ reverse_y:
     lda #$00
     sta y_frac, x
     Negate16(vy_lo, vy_hi)
+    Negate16(evy_lo, evy_hi)    // keep the cache in step (see ScaleVel)
     lda vy_hi, x
     eor tvy_hi, x
     bpl ry_done
@@ -1463,95 +1972,10 @@ si_done:
     rts
 
 //------------------------------------------------------------------
-// wait_raster_a - busy-wait until VIC_RASTER == A.
-//
-// The same equality-poll idiom main_loop and intro_raster.asm's rb_show
-// already use. If the target line has ALREADY passed this frame (the
-// caller was slower than expected), this spins all the way round to the
-// same line next frame rather than firing late - self-healing, at the
-// cost of a dropped frame, exactly like every other raster wait in this
-// codebase. See apply_band's caller for why the target is always kept
-// clear of the ambiguous low-byte range (see MIN_Y's own comment).
-//------------------------------------------------------------------
-wait_raster_a:
-    cmp VIC_RASTER
-    bne wait_raster_a
-    rts
-
-//------------------------------------------------------------------
-// apply_band - write hardware sprites 0-7 from ball_order[base..base+7],
-// where base comes in A (0 for band 0, 8 for band 1).
-//
-// A hardware slot whose ball_order index would be >= active_balls has
-// no real ball this frame (the LAST band, whenever active_balls is not
-// a multiple of HW_SPRITES) - it is simply left out of band_enable, so
-// VIC_SPRITE_ENABLE hides it outright rather than showing stale X/Y/
-// pointer/color from whatever ball last occupied that hardware slot.
-//
-// X holds the ball's own identity (for the four ball_* table reads);
-// Y holds band_slot, then band_slot*2 for the interleaved X/Y registers
-// - two different index spaces, both needed at once, hence the split.
-//------------------------------------------------------------------
-apply_band:
-    sta band_base
-    lda #$00
-    sta band_slot
-    sta band_enable
-    sta band_msb
-ab_loop:
-    lda band_slot
-    clc
-    adc band_base
-    cmp active_balls
-    bcs ab_next                  // no ball for this hw slot: leave it out
-                                  // of band_enable/band_msb and skip it
-
-    tax
-    lda ball_order, x
-    tax                          // X = the ball's own identity
-
-    ldy band_slot
-    lda hw_bit, y
-    ora band_enable
-    sta band_enable
-
-    lda ball_ptr, x
-    sta SPRITE_PTRS, y
-    lda ball_color, x
-    sta VIC_SPRITE_COLOR, y
-
-    lda x_msb, x
-    beq ab_no_msb
-    lda hw_bit, y
-    ora band_msb
-    sta band_msb
-ab_no_msb:
-    tya
-    asl
-    tay                          // Y = band_slot * 2, for X/Y registers
-    lda x_lo, x
-    sta VIC_SPRITE_X, y
-    lda y_pix, x
-    sta VIC_SPRITE_Y, y
-
-ab_next:
-    inc band_slot
-    lda band_slot
-    cmp #HW_SPRITES
-    bne ab_loop
-
-    lda band_enable
-    sta VIC_SPRITE_ENABLE
-    lda band_msb
-    sta VIC_SPRITE_X_MSB
-    rts
-
-//------------------------------------------------------------------
 // init_stars - scatter STAR_COUNT stars over the text screen
 //
-// Each star is a random cell offset 0..999 (a 10-bit random with the
-// top page clipped so it stays below 1000 and clear of the sprite
-// pointers at $07f8). The offset is remembered so update_effects can
+// Each star is a random cell offset 0..895 (rows 0-22: clear of the
+// legend and status rows, and of the sprite pointers at $07f8). The offset is remembered so update_effects can
 // find the star's color cell again. Most stars are '.', a few are '*'.
 //------------------------------------------------------------------
 init_stars:
@@ -1607,6 +2031,10 @@ update_input:
     lda #$00
     sta key_delta
     sta key_shift
+    jsr joy1_active             // joystick in port 1: its lines would read
+    beq ui_keys                 // as +, CRSR, B... - ignore the keyboard
+    rts                         // this frame
+ui_keys:
 
     lda #$fd                    // left shift?
     sta CIA1_PORT_A
@@ -1617,7 +2045,7 @@ update_input:
     sta CIA1_PORT_A
     lda CIA1_PORT_B
     and #$10
-    bne ui_row5
+    bne ui_check_b              // no shift: still read B (plain B = more)
 ui_shifted:
     inc key_shift
 
@@ -1695,6 +2123,8 @@ ui_change:
     cmp #SPEED_MAX + 1
     bcs ui_done                 // would go above the maximum
     sta speed
+    lda #MAX_BALLS              // every cached velocity is stale now;
+    sta rescale_n               // rescale_some catches up over 4 frames
     jmp draw_speed_bar          // tail call
 ui_done:
     rts
@@ -1733,6 +2163,7 @@ ui_ball_clamp:
     cmp #ACTIVE_BALLS_MAX + 1
     bcs ui_ball_rts               // would go above the compiled ceiling
     sta active_balls
+    jsr reset_order               // keep drawn/collided set = moved set
     jmp draw_ball_count           // tail call
 ui_ball_rts:
     rts
@@ -1892,9 +2323,14 @@ ue_done:
 // rather than skipping just that one pair.
 //
 // This turns the pair scan from unconditional O(n^2) into roughly O(n)
-// for balls that are actually scattered across the play field, which is
-// what makes 16 balls affordable in the same per-frame budget 8 used to
-// need - see the plan doc for the cycle math this is built to satisfy.
+// for balls that are actually scattered across the play field.
+//
+// Each frame only walks every other outer position (by frame parity), so
+// a given pair is tested every second frame. That halves the cost - the
+// single biggest item in a 16-ball NTSC frame - and costs nothing you can
+// see: balls move at most 2.5 px a frame against a 20 px contact zone, so
+// a touch is caught at worst one frame late, and while two balls still
+// overlap they are tested again two frames on.
 //
 // check_pair itself is unchanged: still called with X = ball A's
 // identity, Y = ball B's identity, exactly as when the loop visited
@@ -1906,7 +2342,11 @@ check_collisions:
     sec
     sbc #$01
     sta sort_i                  // reusing sort_balls' scratch - it has
-cc_outer:                       // already done its job for this frame
+    eor frame_count             // already done its job for this frame
+    lsr                         // C = parity(i) != parity(frame)
+    bcc cc_outer
+    dec sort_i                  // start on this frame's parity
+cc_outer:
     lda sort_i
     bmi cc_done
 
@@ -1915,7 +2355,7 @@ cc_outer:                       // already done its job for this frame
     sta pair_a                  // ball A's identity
     tax
     lda y_pix, x
-    sta temp2                   // A's y_pix - the pruning reference
+    sta pair_ay                 // A's y_pix - the pruning reference
 
     lda sort_i
     sec
@@ -1929,7 +2369,7 @@ cc_inner:
     lda ball_order, y
     sta temp                    // ball B's identity
     tax
-    lda temp2
+    lda pair_ay
     sec
     sbc y_pix, x                // A.y - B.y; never borrows, list is sorted
     cmp #BALL_DIAM
@@ -1943,7 +2383,8 @@ cc_inner:
     dec sort_j
     jmp cc_inner
 cc_next_outer:
-    dec sort_i
+    dec sort_i                  // every OTHER outer position: the rest
+    dec sort_i                  // are done next frame (see the header)
     jmp cc_outer
 cc_done:
     rts
@@ -2032,16 +2473,13 @@ cp_dy_abs:
     bne cp_done
     lda #SWAP_COOL
     sta swap_cool
-    lda ball_color, x            // logical, per-ball color now, not the
-    sta temp                      // hardware register directly - apply_band
-    lda ball_color, y             // picks it up next time this ball's band
-    sta ball_color, x             // comes round
+    lda ball_color, x            // logical, per-ball color, not the
+    sta temp                      // hardware register - build_list picks
+    lda ball_color, y             // it up into next frame's write list
+    sta ball_color, x
     lda temp
     sta ball_color, y
-    tya
-    tax
-    ldx save_x
-    jsr spawn_spark             // ASCII spark at the point of contact
+    jsr spawn_spark             // X = A (restored above), Y = B             // ASCII spark at the point of contact
 cp_done:
     rts
 
@@ -2058,6 +2496,7 @@ push_ball:
     eor want_sx
     bpl pb_vx_ok
     Negate16(vx_lo, vx_hi)
+    Negate16(evx_lo, evx_hi)    // the cached scaled copy flips with it
 pb_vx_ok:
     lda tvx_hi, x
     eor want_sx
@@ -2068,6 +2507,7 @@ pb_tvx_ok:
     eor want_sy
     bpl pb_vy_ok
     Negate16(vy_lo, vy_hi)
+    Negate16(evy_lo, evy_hi)
 pb_vy_ok:
     lda tvy_hi, x
     eor want_sy
@@ -2086,8 +2526,9 @@ pb_tvy_ok:
 // sprite position, the display starts at sprite X 24 / Y 50, so
 //     column = (mx + 12 - 24) / 8 = (mx - 12) / 8
 //     row    = (my + 10 - 50) / 8 = (my - 40) / 8
-// Row is 1..22 for any legal ball position, so a spark can never land on
-// the status row. The glyph is random; the cell's old character and color
+// Row runs 2..26 now that MAX_Y reaches into the opened bottom border;
+// anything from the legend row down is skipped, so a spark never lands
+// on the status rows or indexes past row_offset_*. The glyph is random; the cell's old character and color
 // are saved so update_effects can put them back.
 //------------------------------------------------------------------
 spawn_spark:
@@ -2138,8 +2579,10 @@ spawn_spark:
     sbc #40
     lsr
     lsr
-    lsr                         // row 1..22
-    tay
+    lsr                         // row 2..26: MAX_Y reaches the open border
+    cmp #LEGEND_ROW / 40        // 23+ is the legend, the speed bar, or
+    bcs ss_exit                 // off the text screen entirely - no spark
+    tay                         // (row_offset_* only has 25 entries)
 
     //---- cell offset = row * 40 + column, in temp (low) / temp2 (page) ----
     lda row_offset_lo, y
@@ -2302,7 +2745,9 @@ sprite_colors:                  // body color per ball (bit pair 10),
 
 hw_bit:                         // bit n = hardware sprite n, for building
     .byte $01, $02, $04, $08    // VIC_SPRITE_ENABLE and VIC_SPRITE_X_MSB
-    .byte $10, $20, $40, $80    // one hw slot at a time in apply_band
+    .byte $10, $20, $40, $80    // one hardware sprite at a time
+msb_clear:                      // ~hw_bit: clears one sprite's $d010 bit
+    .byte $fe, $fd, $fb, $f7, $ef, $df, $bf, $7f
 
 spark_chars:                    // random spark glyph: * + filled/hollow circle
     .byte $2a, $2b, $51, $57
@@ -2340,9 +2785,10 @@ status_text:                    // 40 columns; the speed bar and the ball
 twinkle_colors:                 // random star shades (mostly dim)
     .byte $0b, $0c, $0f, $01, $0c, $0b, $0e, $0c
 
-// Star cell offsets into the screen (0..999), low and high bytes
+// Star cell offsets into the screen (0..895), low and high bytes
 star_lo:    .fill STAR_COUNT, 0
 star_hi:    .fill STAR_COUNT, 0
+.errorif * > VIC_IDLE_FETCH, "Main Code has reached $3fff, which start zeroes"
 
 //------------------------------------------------------------------
 // Sprite graphics - 8 shaded ball frames at $2000,
@@ -2352,7 +2798,7 @@ star_hi:    .fill STAR_COUNT, 0
 #import "sprite_gen.asm"
 
 //------------------------------------------------------------------
-// The intro tune (PSID, loads at its own $1000) and the intro's spiral
+// The intro tune (PSID, loads at its own $1000) and the intro's sunset
 // bitmap (8000 bytes at $4000, in VIC bank 1). Both are data only.
 //------------------------------------------------------------------
 #import "music.asm"
@@ -2364,7 +2810,6 @@ star_hi:    .fill STAR_COUNT, 0
 // Code, so it needs somewhere to live: it goes in the spare RAM above the
 // intro's wipe field, inside VIC bank 1 but well clear of everything the
 // VIC is pointed at there (bitmap $4000, matrix $6000, sprites $6400).
-// The Main Code segment could not take it - it has 226 bytes left before
-// the cell fields at $3000.
+// It started out in Main Code's spare RAM; that ran out first.
 //------------------------------------------------------------------
 #import "intro_raster.asm"

@@ -1,12 +1,15 @@
 # spritemove
 
 A Commodore 64 demo in 6502 assembly: a raster bar overture, a hi-res bitmap
-intro with a carved and flying logo, then eight shaded balls drifting around a
-starfield with collision sparks and SID ping effects, using the full height of
-the screen — the vertical border is held open, so the balls fly into it.
+intro with a carved and flying logo, then 4 to 16 shaded balls (8 to start)
+drifting around a starfield with collision sparks and SID ping effects, using
+the full height of the screen — the vertical border is held open, so the balls
+fly into it. Past eight balls the VIC's eight sprites are multiplexed by a
+raster IRQ.
 
-Written for **KickAssembler v5.25**, tested in **VICE x64sc** (PAL), targeted at
-an **Ultimate II+** cartridge.
+Written for **KickAssembler v5.25**, targeted at **NTSC** C64s (US machines)
+first and PAL second, tested in **VICE x64sc** on both, deployed via an
+**Ultimate II+** cartridge.
 
 ---
 
@@ -17,34 +20,49 @@ an **Ultimate II+** cartridge.
 # name and its load/init/play addresses) and "Writing prg file: main.prg".
 java -jar /Applications/KickAssembler/KickAss.jar main.asm -odir bin
 
-# Run
-/Applications/vice-arm64-gtk3/bin/x64sc -autostart bin/main.prg
+# Run (NTSC; drop -ntsc or pass -pal for the PAL check)
+/Applications/vice-arm64-gtk3/bin/x64sc -ntsc -autostart bin/main.prg
 ```
 
-Output is `bin/main.prg`, about 25 KB. The repo's `/build` and `/run` slash
-commands do both steps.
+Output is `bin/main.prg`, about 32 KB (`$0801-$83e7`). The repo's `/build` and
+`/run` slash commands do both steps.
 
 To *see* a particular moment without watching in real time, let VICE run a fixed
 number of cycles in warp and screenshot on the way out:
 
 ```bash
-/Applications/vice-arm64-gtk3/bin/x64sc -autostart bin/main.prg \
+/Applications/vice-arm64-gtk3/bin/x64sc -ntsc -autostart bin/main.prg \
     -warp -limitcycles 12000000 -exitscreenshot /tmp/shot.png
 ```
 
 Autostart costs roughly 3.2M cycles before the intro's first frame (measured;
-it grows with the `.prg`), and PAL runs 985248 cycles a second. The overture is
-480 frames and the bitmap intro 830, so the balls appear around 28.9M.
+it grows with the `.prg`). NTSC runs 1022727 cycles a second (a frame is 17095),
+PAL 985248 (a frame is 19656). The overture and the bitmap intro are timed in
+**tune ticks**, not frames, so they take the same wall-clock time on both: the
+balls appear about 26 seconds in.
 
-**Pass `-pal`.** A `vicerc` with `MachineVideoStandard=2` makes `x64sc` default
-to NTSC, where a line is 65 cycles over 263 raster lines — the off-screen window
-the overture budgets against shrinks from 117 lines to 68 and none of the cycle
-counts in `intro_raster.asm` hold. This demo is a PAL demo; measure it as one.
+### NTSC and PAL
+
+`detect_video` reads the highest raster line at start-up (`$106` NTSC, `$137`
+PAL) and three things follow from it:
+
+- **Music tempo.** *Nightshift* is a PAL tune, one play call per 50 Hz frame.
+  Played once per 60 Hz NTSC frame it runs 20% fast, so `music_tick` skips
+  every sixth call on NTSC: 50 plays a second on both.
+- **Intro timing.** The phase lengths are frame counts written to land on the
+  tune's beats. On a frame `music_tick` skipped, every duration counter holds
+  (`BeatDec`), so the phases stay on the beat; the animation still moves on
+  every frame.
+- **The overture's band.** Its polled raster bars leave the vertical blank for
+  everything else — music, bar movement, rebuilding the line buffer. PAL has
+  118 lines of it, NTSC only 69 (about 4500 cycles), so on NTSC the band ends at
+  line 232 instead of 250 (the lowest label is at lines 219-226).
 
 Note that `-limitcycles` stops the emulator wherever it lands, which is usually
 part way down a frame — the screenshot is then the part of that frame drawn so
 far, with the rest black. To get whole frames, find one cycle count that lands
-in the vertical blank and step from it in multiples of 19656 (a PAL frame).
+in the vertical blank and step from it in multiples of 17095 (NTSC) or 19656
+(PAL).
 
 ---
 
@@ -53,16 +71,16 @@ in the vertical blank and step from it in multiples of 19656 (a PAL frame).
 | Key | Action |
 |---|---|
 | `+` / `-` or `CRSR` | Speed level, 1-16 (default 4 = half base speed) |
-| `B` / `SHIFT+B` | Ball count, 4-16 (default 8) - see Sprite multiplexing below |
+| `B` / `SHIFT+B` | Ball count, 4-16 (default 8) — see Sprite multiplexing below |
 | `R` | Restart from the very top of the intro |
 | `Q` or `RUN/STOP` | End the demo, back to a `READY.` prompt |
 
 The bottom **two** text rows are the menu — a fixed legend of the keys on row 23,
-and the speed bar plus the exit key on row 24:
+and the speed bar, the ball count and the exit key on row 24:
 
 ```
 SPEED +/- CRSR B=BALLS R=RESTART Q=QUIT
-SPD[####............] RUN/STOP=END
+SPD[####............] B:08 STOP=END
 ```
 
 `R` works during the intro as well as during the demo, because it is scanned in
@@ -74,14 +92,17 @@ reason — the jump comes from several `jsr`s deep, so without it every restart
 would strand a return address and the stack would eventually wrap into zero page.
 
 `Q` and `RUN/STOP` share keyboard row `$7f` — bits 6 and 7 — so one matrix read
-tests both.
+tests both. A joystick in control port 1 is wired onto the same column lines, so
+while one is pushed the other keys are ignored (otherwise joystick-down reads as
+`R`); the exit keys use bits the joystick never drives and always work.
 
 `RUN/STOP` does not return to BASIC — the demo has overwritten BASIC's zero
 page, so there is nothing sane to return to. It silences the SID, clears the
 sprites and jumps through the KERNAL reset vector at `$fffc`, which gives a
-normal `READY.` prompt. `RUN/STOP+RESTORE` is defused at startup by masking
-CIA2's NMI, because `sei` does not mask NMI and a warm start would land on the
-same trashed zero page.
+normal `READY.` prompt. `RUN/STOP+RESTORE` is defused at startup by pointing
+the NMI vector `$0318` at an `rti` (`nmi_ignore`): `sei` does not mask NMI,
+RESTORE reaches `/NMI` directly, and the kernal's handler would warm-start BASIC
+on the same trashed zero page. Masking CIA 2 at `$dd0d` alone cannot stop it.
 
 ---
 
@@ -91,7 +112,8 @@ same trashed zero page.
 
 Before the bitmap intro there is a raster bar sequence in plain text mode:
 eight colour bars flying over a black screen while the handle, five labels
-and a closing music credit fade up one at a time. See `intro_raster.asm`.
+and a closing music credit fade up one at a time; the labels go dark with the
+closing flash rather than snapping off after it. See `intro_raster.asm`.
 
 There is no per-cell work in it at all. Everything is one byte per **raster
 line** in a page-aligned buffer at `$0900`, and a frame is two halves that
@@ -157,8 +179,7 @@ self-healing by construction, which is worth more here.
 
 ### The intro (~17 seconds)
 
-A hi-res bitmap **retro sunset grid** — sky bands, a perspective checkerboard
-floor and a striped badge sun on the horizon between them — generated at
+A hi-res bitmap **retro sunset grid** — sky bands, a perspective floor and a striped badge sun on the horizon between them — generated at
 assembly time and never changed a single pixel at run time; all the motion is
 colour. This used to be a polar spiral tunnel; see below for why it isn't now.
 
@@ -178,9 +199,10 @@ construction. The new one has no `sqrt`/`atan2` in it at all:
   ruling dead straight, plus a per-band pseudo-random hash jitter that nudges
   each stripe's edge a little early or late — real scanlines are never
   perfectly even, and that unevenness is baked into the picture on purpose
-- **floor** (below the horizon) — a perspective checkerboard: screen X is
-  divided by depth before it is tiled, so the squares narrow toward the
-  horizon the way a real floor recedes, and a fog term dithers the near tiles
+- **floor** (below the horizon) — meant as a perspective checkerboard: screen
+  X is divided by depth before it is tiled, so the squares narrow toward the
+  horizon the way a real floor recedes (as tuned, the tiles are so wide that
+  below the fog the floor reads as two halves - see the review notes), and a fog term dithers the near tiles
   crisp and the far ones toward grey static so the horizon disappears into
   haze rather than snapping off
 - **sun** — a plain circle sat on the horizon, cut by horizontal stripes that
@@ -197,9 +219,9 @@ how the letters keep their own colour and their own glint in a mode with only
 two colours per cell to spend.
 
 Because it is all per-*cell*, animating the whole screen is a table lookup per
-cell rather than a redraw. `paint_sweep` recolours one 256-cell page per
-frame at 31 cycles a cell — about 8200 cycles — and rotates through the four
-pages, so the screen refreshes top to bottom every four frames while the ramps
+cell rather than a redraw. `paint_sweep` recolours two 256-cell pages per
+frame at 31 cycles a cell — about 16400 cycles — and rotates through the four
+pages, so the screen refreshes top to bottom every two frames while the ramps
 keep turning. The four fields no longer turn a spiral; they sweep the same
 fixed picture along rows, columns or a diagonal:
 
@@ -212,7 +234,9 @@ fixed picture along rows, columns or a diagonal:
 
 The sequence:
 
-| Phase | Frames | What happens |
+Lengths are in tune ticks (= PAL frames; on NTSC a tick is 6/5 of a frame).
+
+| Phase | Ticks | What happens |
 |---|---|---|
 | Z | 60 (~1.2s) | Nothing — a black screen while the tune starts. Paints nothing at all; the screen stays black because nothing rewrites it |
 | T | 90 (~1.8s) | The title card: the carving lights up while the backdrop is still black, so the name, date and `v1.0` arrive out of nothing — exactly where the flying copy will later land |
@@ -271,8 +295,8 @@ all eight sprites are spoken for, and a version label has no business flying.
 frame. Sprites are the only thing on this machine that moves for free. So the
 logo is built once from glyph rows lifted from the C64 character ROM and emitted
 twice — carved into the bitmap by `intro_gfx.asm`, packed into sprites by
-`intro_sprites.asm` (3 characters per sprite, every font row stored twice,
-X-expanded to 16x16). None of the font reaches the `.prg`; by run time the
+`intro_sprites.asm` (3 characters per sprite; the name's font rows are stored
+twice and X-expanded to 16x16, the date's are 1:1, 8x8). None of the font reaches the `.prg`; by run time the
 letters are already pixels.
 
 The flying copy **opens on the carved position exactly**. Every phase starts at
@@ -296,7 +320,8 @@ in the 8 seconds it is up. The date carries a half-period offset, so the two
 words swing against each other and cross.
 
 The music is *Nightshift* by Ari Yliaho (Agemixer), imported from PSID and
-driven one tick per frame at a fixed raster line.
+driven from a fixed raster line by `music_tick`: every frame on PAL, five frames
+in six on NTSC.
 
 ### The demo
 
@@ -308,48 +333,68 @@ moves faster and reversing when it turns.
 #### Sprite multiplexing: more balls than the VIC has sprites
 
 The VIC-II has exactly 8 hardware sprites, fixed in silicon — there is no
-ninth one to enable. Above 8 active balls, `main.asm` reuses those same 8
-sprites twice a frame, splitting the screen into two **raster bands** and
-reprogramming all 8 sprites' X/Y/pointer/color partway down the frame to show
-a different set of balls in the lower band.
+ninth one to enable. Above 8 active balls, a **raster IRQ chain** (`mux_irq`)
+reuses those 8 sprites part way down the frame: once a sprite has finished
+drawing one ball, it is reprogrammed for another ball further down.
 
-Every ball still gets its own physics state (position, velocity, spin,
-pointer, color) in a per-ball table — just not in a hardware register until
-its band's turn comes up. Which balls land in which band is decided fresh
-every frame by **sorting all active balls by Y** (`sort_balls`, an insertion
-sort — cheap because the order rarely changes much frame to frame) and
-handing the lowest 8 to band 0 and the rest to band 1. That sort has to run
-every frame regardless of band count, so `check_collisions` reuses it as a
-sweep: instead of testing all `C(n,2)` pairs, it walks the Y-sorted list and
-stops comparing a ball against progressively-lower ones the moment their Y
-gap exceeds the touch radius, since nothing sorted below that point can be
-any closer. 16 balls is 120 possible pairs against 8 balls' 28, and this
-keeps the common (scattered) case close to O(n) instead of O(n²).
+Every frame the main loop steps the physics, **sorts the balls by Y**
+(`sort_balls`, an insertion sort — cheap, because the order barely changes
+frame to frame), resolves collisions, and then `build_list` turns that one
+snapshot into a **write list** for the IRQ:
 
-Band 0 publishes at the same point in the frame `apply_positions` always
-did — right after the line-250 sync, for the *previous* frame's physics
-result, same one-frame pipeline as before. Band 1 can't use that timing: it
-has to land while the *current* frame is actually being drawn, part way
-between band 0's balls and band 1's on screen, so a busy-wait for that exact
-raster line sits between them. The frame's physics work (`update_sprites`,
-the sort) is deliberately placed in that gap rather than after both bands -
-those raster lines have to elapse regardless of what the CPU does with them,
-so doing the frame's main cost there costs nothing extra rather than sitting
-idle in a wait loop. Measured with a pixel-diff over consecutive real frames
-(not eyeballed - a few pixels of ball motion a frame is easy to misjudge by
-eye), 16 balls holds the full 50 Hz PAL rate with no dropped frames.
+- entries 0-7 are **band 0**: the eight highest balls on sprites 0-7;
+- ball *i* (for *i* ≥ 8) re-uses sprite *i* & 7 — the sprite of the ball
+  eight places above it — from the first raster line after that ball has
+  been drawn (its Y + 21 lines + 2). If that line is not at least 3 lines
+  above ball *i*'s own Y, there is no time to switch the sprite, and the
+  ball is left out of that frame (it still moves and collides). Measured at
+  16 balls over 600 frames: no skips.
 
-Ball *state* still doesn't fit in zero page at 16 balls (15 tables x 16 is
-240 bytes, more than all of `$02-$FF`), so it moved to ordinary RAM,
-overlapping the intro's four wave fields and reusing the same "dead by the
-time the other side starts" trick zero page already used for the intro's own
-variables - `play_intro` finishes completely before a single ball byte is
-written. Indexed table access costs the same off zero page (`lda table,x` is
-4 cycles either way), so this cost nothing at runtime, only an extra opcode
-byte per access - the actual reason it isn't at `$3000` right next to the
-bitmap it displaced from is that `Main Code` grew past that address once the
-multiplexing code was added, and KickAssembler will not let two segments
-share a byte.
+The IRQ chain then runs every frame:
+
+- **line 16** — the top IRQ: `$d011` back to 25 rows, swap in a fresh write
+  list if one is ready, write all of band 0. Line 16 is safe on both
+  standards: a ball as low as Y 250 is drawn on lines 251-271, which on NTSC's
+  263-line frame runs on to line 8 of the next.
+- **each re-use line** — one sprite's X, Y, pointer, colour and its own bit of
+  `$d010` (read-modify-write, so the other seven are untouched).
+- **line 248** — `$d011` to 24 rows: the open border (below).
+
+The write list is **double buffered**: the main loop fills the back half
+while the IRQ shows the front half, and the top IRQ only swaps when the main
+loop has said the back half is complete. So the main loop's cost only has to
+fit a frame, not a gap between two raster lines — and if it ever runs long,
+the IRQ simply shows the last complete list again: a repeated frame, never a
+torn one.
+
+Collisions reuse the sort as a sweep: instead of testing all `C(n,2)` pairs
+(120 at 16 balls), it walks the Y-sorted list and stops comparing a ball
+against lower ones the moment their Y gap reaches the touch radius. Each frame
+it walks only every other outer position, so a pair is tested every second
+frame — invisible at ≤2.5 px a frame against a 20 px contact zone.
+
+The other big saving is the **velocity cache**: the speed-scaled velocity
+(`ScaleVel`, ~300 cycles a call, twice per ball) used to be recomputed for
+every ball every frame. It is now stored per ball and only recomputed while a
+ball eases up to speed, and a few balls a frame after the speed level changes;
+a bounce just negates it along with the base velocity.
+
+Measured on NTSC (VICE `x64sc -ntsc`, 600 frames, balls at speed), out of a
+17095-cycle frame:
+
+| Balls | Average | Worst | Late frames |
+|---|---|---|---|
+| 8 | ~5000 | ~6100 | 0 |
+| 12 | ~8400 | ~10600 | 0 |
+| 16 | ~12600 | ~14400 | 0 |
+
+Ball *state* doesn't fit in zero page at 16 balls (24 tables x 16 is 384
+bytes, more than all of `$02-$FF`), so it lives in ordinary RAM at `$8400`
+(`BALL_STATE`). Indexed table access costs the same off zero page (`lda
+table,x` is 4 cycles either way, and no table crosses a page). It must **not**
+share memory with the intro's wave fields: those are assembled-in data, and
+`R` replays the intro from them — an earlier version put the ball tables on
+top of wave A and garbled the top of every intro after the first.
 
 Everything moves in **8.8 fixed point**, one byte of whole pixels and one of
 1/256ths, so a ball can travel at 0.3 px/frame and still look smooth. X needs 9
@@ -362,35 +407,34 @@ low for a wall, higher and randomly pitched for a ball-to-ball hit — and a
 ball-to-ball hit also throws an ASCII spark onto the text screen at the point of
 contact.
 
-Stored velocities are *base* velocities, scaled every frame by the global speed
-level (`effective = base * speed / 8`), so changing speed never disturbs the
-headings or the bounces.
+Stored velocities are *base* velocities, scaled by the global speed level
+(`effective = base * speed / 8`, cached per ball — see above), so changing speed
+never disturbs the headings or the bounces.
 
 #### The open border
 
-The balls are not confined to the 25-row text window. Every frame the main loop
-switches `$d011` to 24 rows *on line 250* — the last line before the VIC would
-raise its vertical border flip-flop — so the flip-flop is never set and the
-sprites carry on through the bottom border and the next frame's top one. It
-switches back to 25 rows after the frame's work, by which point the raster is
-thousands of cycles past 251. No IRQ; it rides the raster sync the loop already
-had.
+The balls are not confined to the 25-row text window. Every frame the IRQ
+switches `$d011` to 24 rows *on line 248* — after line 247, where the VIC
+would raise its vertical border flip-flop with 24 rows, and before 251, where
+it would with 25 — so the flip-flop is never set and the sprites carry on
+through the bottom border and the next frame's top one. The top IRQ at line 16
+switches back to 25 rows, ready for the next frame.
 
 The playfield is therefore **X 22..322, Y 56..250**. The status bar stays on text
 row 24 because the opened border can only display sprites, not characters — so
 row 24 is the lowest line the VIC can put text on, and the balls simply fly over
 it and on down past it.
 
-`MIN_Y` is 56 rather than 0 for a hardware reason: a sprite triggers when the low
-8 bits of the raster match its Y, and PAL lines 256–311 repeat the low bytes
-0–55. With the bottom border open those lines are visible, so a ball at Y < 56 is
+`MIN_Y` is 56 rather than 0 for a hardware reason on PAL: a sprite triggers when
+the low 8 bits of the raster match its Y, and PAL lines 256–311 repeat the low
+bytes 0–55 (NTSC's 256–262 only repeat 0–6; one limit keeps both the same). With the bottom border open those lines are visible, so a ball at Y < 56 is
 drawn a second time as a ghost near the bottom of the screen. Confirmed in VICE —
 at `MIN_Y` 20 the top ball has a visible twin, at 56 it does not.
 
 The **side** borders are still closed, so X cannot be widened: a sprite outside
 the 24..343 window is clipped rather than drawn. Opening them needs a cycle-exact
-`$d016` write on every raster line — a stable-raster IRQ costing roughly 12600 of
-a PAL frame's 19656 cycles, which does not fit next to this much physics.
+`$d016` write on every raster line — a stable-raster effect that would eat most
+of an NTSC frame's 17095 cycles, which does not fit next to this much physics.
 
 ---
 
@@ -398,7 +442,7 @@ a PAL frame's 19656 cycles, which does not fit next to this much physics.
 
 | File | Contents |
 |---|---|
-| `main.asm` | The demo: registers, zero page, main loop, physics, collisions, trails, sparks, sound, status bar |
+| `main.asm` | The demo: registers, zero page, video standard detection, main loop, multiplexer IRQ, physics, collisions, sparks, sound, status bar |
 | `sprite_gen.asm` | Assembly-time ball frames (8) |
 | `intro.asm` | The opening sequence: phases, sweep, palette and glint tables, sprite flow |
 | `intro_gfx.asm` | The retro sunset-grid bitmap with the logo carved in, plus the cell fields |
@@ -409,38 +453,46 @@ a PAL frame's 19656 cycles, which does not fit next to this much physics.
 | `Nightshift.sid` | The intro tune |
 
 None of the `intro_*` files or `sprite_gen.asm` assemble on their own — they are
-`#import`ed into `main.asm`'s code segment and depend on its labels.
+`#import`ed into `main.asm` and depend on its labels. Only `intro.asm` lands
+inside Main Code; the others set their own `* =` segments.
 
 ---
 
 ## Memory layout
 
 ```
-$0002-$0072  zero page (see below)
-$0400-$07e7  text screen: stars, status row 24 (sprite pointers at $07f8)
+$0002-$0014  zero page: the intro's variables, ntsc, music_div, beat_hold
+$007a-$00ad  zero page: the demo's globals, sort scratch, the IRQ's state
+$00f8-$00f9  zero page: Nightshift's player (traced - nothing else)
+$0314-$0315  IRQ vector -> mux_irq (demo only)
+$0318-$0319  NMI vector -> nmi_ignore
+$0400-$07e7  text screen: stars, status rows 23-24 (sprite pointers at $07f8)
 $0801        BASIC stub "10 SYS 8768" (8768 = $2240)
-$0900-$09ff  raster bar line buffer: one colour per raster line
-$3fff        VIC idle fetch - displayed in the opened border, zeroed at
-             start-up
+$0900-$0a0b  raster bar line buffer: one colour per raster line
 $1000-$1d77  Nightshift.sid - player and data at its own load address
 $2000-$21ff  8 ball frames, 64 bytes each   (VIC blocks $80-$87)
-             shared by all eight balls; each ball's pointer picks its
+             shared by all the balls; each ball's pointer picks its
              own current frame
-$2240-...    code and data tables
-$3000-$33e7  intro text mask   (1000 cell glint values, CPU only)
-$3400-$3fe7  intro wave fields (3 x 1000 cell values, CPU only)
+$2240-$3fff  code and data tables (Main Code, ends ~$34c0)
+$3fff        VIC idle fetch - displayed in the opened border, zeroed at
+             start-up
 $4000-$5f3f  intro bitmap      (VIC bank 1, 8000 bytes)
 $6000-$63e7  intro video matrix (VIC bank 1, filled at run time)
 $63f8-$63ff  intro sprite pointers (VIC bank 1)
 $6400-$65ff  intro logo sprites (VIC bank 1, 8 x 64 bytes)
 $6600-$66ff  intro sine table   (CPU only)
 $6700-$6ae7  intro wipe field   (CPU only)
-$6b00-...    intro_raster.asm's code and data (CPU only)
+$6b00-$73ff  intro_raster.asm's code and data (CPU only, ends ~$71b2)
+$7400-$83e7  intro wave fields A-D (4 x 1000 at $400 spacing, CPU only)
+$8400-$857f  BALL_STATE: 24 per-ball tables x 16 balls
+$8600-$873f  the multiplexer's double-buffered write list
 ```
 
-`intro_raster.asm` lives up in bank 1's spare RAM because the Main Code segment
-has no room for it — `$2240-$2f1d` leaves 226 bytes before the cell fields at
-`$3000`. It is code, not graphics, and the VIC is never pointed at it.
+`intro_raster.asm` lives up in bank 1's spare RAM because Main Code ran out of
+room for it. It is code, not graphics, and the VIC is never pointed at it. The
+wave fields, `BALL_STATE` and the write list are CPU-only too, so they sit past
+the end of bank 1 (`$8000+` is plain RAM: no cartridge maps ROM there). Overlaps
+between them are `.errorif` build errors.
 
 **The code segment starts at `$2240`, not the usual `$0810`.** A PSID player is
 not relocatable and Nightshift loads at `$1000-$1d77`, so the code has to start
@@ -454,27 +506,28 @@ bank 1.
 ### Zero page
 
 ```
-$02-$95  global state (RNG, timers, scratch, speed, keyboard, ball count,
-         sprite-multiplexing scratch - see below)
+$02-$11  the intro's variables
+$12-$14  ntsc, music_div, beat_hold - shared by intro and demo
+$7a-$9f  the demo's globals (RNG, timers, scratch, speed, keyboard, ball
+         count, sort and collision scratch)
+$a0-$ad  the multiplexer IRQ's state and build_list's scratch
 ```
 
-The 15 per-ball tables used to live at `$02-$79`, one 8-byte row each - that
-was the ceiling zero page could hold. They have since moved to ordinary RAM
-(`BALL_STATE`, overlapping the intro's wave fields) to make room for up to
-16 balls; see **Sprite multiplexing** above for why and where. `ptr`
-(`$84`) is the one table that stayed - `(ptr),y` indirect indexed addressing
-has no absolute-memory form on the 6502, so it has no choice but zero page.
+The per-ball tables used to live at `$02-$79`, one 8-byte row each — that was
+the ceiling zero page could hold. They moved to ordinary RAM (`BALL_STATE`) to
+make room for up to 16 balls; see **Sprite multiplexing** above. `ptr` (`$84`)
+has to stay in zero page — `(ptr),y` indirect indexed addressing has no
+absolute-memory form on the 6502.
 
-**The intro's variables deliberately overlap this block** at `$02-$0f`.
-`play_intro` runs to completion before `init_sprites` writes a single byte
-of demo state, so the two are never live at the same time. It has one
-consequence worth remembering: nothing the demo needs may be written
-*before* `play_intro` — `speed`, `key_timer` and `swap_cool` are set after it
-returns for exactly this reason.
+**The intro's variables share `temp`/`temp2` with the demo.** `play_intro` runs
+to completion before `init_sprites` writes a single byte of demo state, so the
+two are never live at the same time. One consequence worth remembering: nothing
+the demo needs may be written *before* `play_intro` — `speed`, `key_timer`,
+`swap_cool` and the spark slots are set after it returns for exactly this
+reason.
 
-The intro's variables are kept below `$8f` because that is the range the SID
-player was checked against. The demo's globals may sit above it, because by then
-the player has been silenced.
+Nightshift's player touches only `$f8/$f9` (traced from its init and play
+entries), so it collides with neither block. Re-check if the tune is swapped.
 
 ---
 
@@ -482,17 +535,10 @@ the player has been silenced.
 
 Worth knowing before editing:
 
-- **Carve order in `intro_gfx.asm`.** `near_text` includes its own `(0,0)`
-  offset, so it blacks out glyph interiors too, and the carve must come second
-  to put them back. Swapping those two lines erases the whole logo silently.
-- **Glyph bits.** The knockout outline only works while every lit pixel is in
-  bits 6..1 of its font row. This is checked with `.errorif` at build time, so a
-  glyph that breaks it fails the build instead of quietly losing one side of its
-  outline.
-- **`vmtab`/`coltab` alignment.** `.align $20` keeps them off a page edge;
-  `paint_sweep` reads both with `lda abs,y` 512 times a frame and a page cross
+- **`vmtab` alignment.** `.align $20` keeps the 32-byte table on one page;
+  `paint_sweep` reads it with `lda abs,y` 512 times a frame and a page cross
   there costs ~200 cycles a frame.
-- **The sweep stops at `$63e7`**, eleven bytes short of the sprite pointers at
+- **The sweep stops at `$63e7`**, sixteen bytes short of the sprite pointers at
   `$63f8`. Extending it would overwrite them.
 - **The logo's two copies are never lit at once.** `set_text_ramp` has exactly
   two ramps — off and hot — because through A, B and F the flying sprite copy is
@@ -503,37 +549,75 @@ Worth knowing before editing:
 - **`$3fff` must stay zero.** With the vertical border open the VIC spends the
   border lines idle, displaying the last byte of the bank rather than the
   screen. Leave junk there and it tiles the whole opened border.
-- **The `$d011` writes in `main_loop` are a pair.** The 24-row write has to land
-  on line 250 and the 25-row write has to land after 251. Inserting work between
-  the raster sync and the first write, or cutting the frame's work down to almost
-  nothing, breaks the border open/closed either way.
-- **Phase D is the tightest frame in the intro.** `flash_field` is 13056 cycles,
-  leaving the music player ~5400 of a PAL frame and ~2900 of an NTSC one. An
-  overrun is benign — `intro_sync` misses line 250 and waits a frame, so the
-  white-out stutters rather than breaking.
+- **The `$d011` writes in `mux_irq` are a pair.** The 24-row write has to land
+  in lines 248-250 and the 25-row write anywhere from 252 to 246 of the next
+  frame (the top IRQ does it at 16). `mux_irq` checks the bottom line before it
+  applies any sprite entries, so a pile of entries cannot push it past 250.
+- **Nothing of the demo's may overlap the intro's wave fields.** They are
+  assembled-in data that `R` replays. `.errorif` guards the layout.
+- **The main loop never writes a sprite register.** Everything goes through
+  `build_list` and the IRQ; a direct write would be overwritten mid-frame, or
+  worse, land between a band-0 write and a re-use.
+- **Every frame-locked music call goes through `music_tick`, and every intro
+  duration counter through `BeatDec`.** Calling `MUSIC_PLAY` directly makes
+  the tune 20% fast on NTSC; a plain `dec` on a phase counter drifts the
+  phase off the beat.
+- **Phase D is the tightest frame in the intro.** `flash_field` is ~7200
+  cycles (the comment in `intro.asm` and an older 13056 figure disagree; not
+  re-measured). An overrun is benign — `intro_sync` misses line 250 and waits a
+  frame, so the white-out stutters rather than breaking.
 
 ---
 
 ## Verification status
 
-PAL timing was measured in VICE; the intro's per-frame budget and the zero page
-and memory layout have been checked against the hardware references in
-`.claude/c64-reference/`. A `c64-reviewer` pass has since measured the intro on
-**both** PAL and NTSC (680 frames, zero dropped frames on either) and confirmed
-the bank/`$d018` mapping, the `intro_to_text` restore order and the exit path
-against the actual KERNAL ROM image.
+Everything here is VICE (`x64sc`), NTSC first and PAL second; nothing has been
+run on real hardware yet.
 
-The open border was verified visually in VICE: a scratch build with a red border
-shows top and bottom black through to the screen edge with the side borders still
-red, and the `MIN_Y` ghost threshold was found by testing rather than reasoning.
+Measured in VICE on NTSC: the demo's frame budget at 8, 12 and 16 balls (table
+above), the overture's off-screen work (one late frame in the whole overture —
+the first, which is black anyway), and whole-sequence screenshots on both
+standards showing the same phase at the same wall-clock time. The open border
+and the `MIN_Y` ghost threshold were verified visually on PAL.
 
-Not verified: real hardware (everything here is VICE), `RUN/STOP` pressed
-*during* the intro with a real keypress, the cycle budget with the eight flying
-sprites stealing DMA during phases B and F, and whether Nightshift's own zero
-page use really does stay clear of the intro's `$02-$10` — that one is
-empirical, from the intro rendering correctly, not from a disassembly.
+Not verified: real hardware; the `B` key and `R` restart with a real keypress
+(both traced in code, and the restart corruption they used to cause was seen in
+VICE and is fixed by moving `BALL_STATE`); the 7-cycle polling loop of the
+overture on NTSC, where 65 is not a multiple of 7 and the bar edges may show
+more slivers than the 8.5% measured on PAL.
 
-A `c64-reviewer` pass found seven defects, **all now fixed**: `RUN/STOP+RESTORE`
+### Review, 2026-10-04
+
+A four-agent `c64-reviewer` pass over the whole demo found, and this round
+fixed:
+
+- `B` could only ever lower the ball count — plain `B` was never read, so the
+  multiplexer was unreachable from the keyboard.
+- The polled two-band multiplexer ran at half frame rate above 8 balls (measured
+  ~39000 cycles a pass at 16), flickered whole bands, tore balls at the band
+  hand-over and in the open bottom border, and published the two bands from
+  different snapshots. Replaced by the IRQ multiplexer and velocity cache above.
+- `check_collisions` lost its Y-pruning reference to `check_pair`'s scratch, so
+  most pairs were never tested, even at 8 balls.
+- Lowering the ball count froze one ball and hid another (`ball_order` was not
+  reset).
+- A collision low on the screen computed text row 25-26 and read past the row
+  table — a spark could be written into code, SID or CIA registers.
+- `R` replayed the intro over ball state sitting on its wave field A.
+- The first demo frame drew sprites from zero page (`ball_ptr` uninitialised).
+- The flying logo started one raster line below its carving; the overture's
+  labels snapped off after the flash; phase C cut the sprites mid-band; the "1"
+  in `v1.0` had two rows swapped.
+- NTSC: the overture's work overran into the bar band on ~half its frames, and
+  the PAL tune played 20% fast.
+
+Known and not fixed: the floor is not really a checkerboard (its tiles are so
+wide the lower floor is two halves), a one-cell hole in the `v1.0` plate, the
+sun's aspect ratio, and the overture still says "ONE RASTER".
+
+### Earlier review
+
+An earlier `c64-reviewer` pass found seven defects, **all fixed**: `RUN/STOP+RESTORE`
 was not actually blocked (RESTORE reaches `/NMI` directly and cannot be masked
 via `$dd0d`, so `$0318` now points at an `rti`); the border was left white for
 the whole closing wipe; `INTRO_SPR_PTR` was computed bank-absolute and only
