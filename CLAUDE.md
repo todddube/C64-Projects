@@ -2,6 +2,16 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Target Platform: NTSC (US) first
+
+The owner runs **NTSC** C64s in the United States. Every demo is designed, budgeted and
+tested for the NTSC 6567R8 VIC first — 263 raster lines (`$000-$106`), 65 cycles/line,
+**17095 cycles/frame**, 59.83 Hz, CPU 1022727 Hz. PAL (312 lines, 19656 cycles, 50 Hz) must
+keep working where that is cheap (detect the standard at startup), but a design that only
+fits a PAL frame is a bug. Test with `x64sc -ntsc` first, PAL second. PSID tunes made for
+PAL need tempo compensation on NTSC (they run ~20% fast when played once per frame).
+Tell subagents explicitly to target NTSC.
+
 ## Reference Documentation
 
 ### C64 Tools Location (macOS)
@@ -49,6 +59,16 @@ against. Read these instead of recalling register addresses from memory:
 and works the checklist over changed assembly. It reads and builds but never edits. Use it
 after writing or changing C64 assembly, or when a demo misbehaves (garbage graphics, IRQ
 lockup, silent SID, crash on exit).
+
+Tell it the **mode** in the prompt: STATIC (default, no emulator, ~5 min), MEASURED (VICE
+runs via `.claude/tools/vice_peek.py` to confirm named suspicions or budgets, ~12 min) or
+FOLLOW-UP (just the diff). Give it at most ~1000 lines of source per agent, and say "target
+NTSC". See `spritemove/agent_recomm.md` for the timing data behind this.
+
+`.claude/tools/vice_peek.py PRG --seconds S [--pal] [--mem A B] [--shot F]` runs a `.prg`
+to an exact emulated time (NTSC by default) and dumps memory and/or a screenshot in ~10 s.
+It picks a free monitor port and kills only its own VICE, so several can run at once. Use
+it instead of hand-written monitor scripts or `sleep` loops.
 
 `.claude/skills/` holds five `6502-*` skills (instruction set, memory map, Merlin, SWEET16,
 6502-to-Rust) as **symlinks into the sibling repo `~/Documents/Github/6502-skills`**
@@ -131,15 +151,15 @@ The VICE log always contains "Unknown disk image" / "no CRT header" / tape error
 To *see* what a demo renders without watching it in real time, let VICE run a fixed
 number of cycles in warp mode and screenshot on exit:
 ```bash
-/Applications/vice-arm64-gtk3/bin/x64sc -autostart bin/main.prg \
+/Applications/vice-arm64-gtk3/bin/x64sc -ntsc -autostart bin/main.prg \
     -warp -limitcycles 14000000 -exitscreenshot /tmp/shot.png
 ```
 Autostart alone costs a few million cycles before the program's first frame (the C64
 boots first — measured at ~3.2M for `spritemove`, and it grows with the `.prg` size), and
-PAL runs ~985248 cycles/second, so `3200000 + seconds * 985248` is a good first guess at
-the frame you want. This is the fastest way to check an intro, a raster split or a color
-choice. `-ntsc` does the same on an NTSC machine, where a frame is 17095 cycles rather
-than 19656.
+NTSC runs ~1022727 cycles/second, so `3200000 + seconds * 1022727` is a good first guess
+at the frame you want. This is the fastest way to check an intro, a raster split or a
+color choice. Drop `-ntsc` (VICE defaults to PAL, ~985248 cycles/second, 19656 cycles a
+frame instead of 17095) for the secondary PAL check.
 
 ### CI/CD
 There are **no GitHub Actions** (no `.github/workflows/`). The only pipeline is
@@ -207,8 +227,8 @@ Binary: `/Applications/regenerator/regenerator2000`
 1. **c64_lessons/**: Progressive tutorials. `lesson01`..`lesson10b` each have a `main.asm` (07/08/09/10b also `#import` their local `memorymap.asm` + `charset_1.asm`); no external dependencies. `lesson11` is the exception — no `main.asm`, just standalone `step_1_`..`step_4_` / `optimized-step4.asm` files showing incremental sprite development
 2. **kickass_examples/**: The official KickAssembler example projects (scripting, PSID import, Koala import, libraries, ...)
 3. **demos/**: Standalone demo sources (`demo1.asm`, `plasma_190.asm`) plus reference `.prg`/`.d64` files that are *not* built from source
-4. **spritemove/** (`main.asm`): Four physics-driven multicolor ball sprites with ghost trails, starfield, ASCII impact sparks and SID ping SFX, opening with a multicolor-bitmap spiral intro set to `Nightshift.sid`. All demo logic is in `main.asm`, heavily commented — read its header before editing. It imports four data/sequence files, none of them buildable on their own: `intro.asm` (the opening sequence), `intro_gfx.asm` (the spiral bitmap, generated at assembly time), `music.asm` (PSID import) and `sprite_gen.asm` (the ray-shaded ball frames + trail disc).
-   **Its code segment starts at `$2240`, not the usual `$0810`** — a PSID player is not relocatable and Nightshift loads at `$1000-$1d77`. The intro runs in VIC bank 1 (bitmap `$4000`, video matrix `$6000`) and switches back to bank 0 text mode for the demo
+4. **spritemove/** (`main.asm`): 4-16 physics-driven multicolor ball sprites (default 8, `B`/`SHIFT+B`; past 8 a raster IRQ multiplexes them over the VIC's 8 sprites), starfield, ASCII impact sparks and SID ping SFX. It opens with a text-mode raster bar overture, then a hi-res bitmap retro-sunset-grid intro with a carved and flying logo, set to `Nightshift.sid`. All demo logic is in `main.asm`, heavily commented — read its header before editing. It imports seven data/sequence files, none buildable on their own: `intro.asm` (the opening sequence), `intro_raster.asm` (the overture and the wipe's border bars), `intro_gfx.asm` (the sunset bitmap and cell fields, generated at assembly time; pulls in `intro_text.asm`, glyph rows from the character ROM), `intro_sprites.asm` (flying logo sprites, sine table), `music.asm` (PSID import) and `sprite_gen.asm` (the ray-shaded ball frames).
+   **Its code segment starts at `$2240`, not the usual `$0810`** — a PSID player is not relocatable and Nightshift loads at `$1000-$1d77`. The intro runs in VIC bank 1 (bitmap `$4000`, video matrix `$6000`) and switches back to bank 0 text mode for the demo. It detects NTSC/PAL at start-up: the tune is held at PAL tempo on NTSC (`music_tick`) and intro phase counters use `BeatDec` so they stay on the beat
 5. **scroller/** (`scroller.asm`): Raster bars + scroller + SID music. **Depends on the sibling repo `C64-Standards`** — imports are written `../../C64-Standards/include/...`, resolved relative to `scroller/`, i.e. `Github/C64-Standards/include/` (`c64_constants.asm`, `zeropage.asm`) — it must be checked out next to this repo or the build fails on `#import`
 6. **Galactic Rasterbar/**: Reverse-engineering project. `*_disasm.asm` / `*_todd.asm` are Regenerator 2000 output in **64tass syntax** (`;` comments, `label = $xxxx`), not KickAssembler — re-export with `--assembler kick` before building with KickAss. Original binary is in `orig/`
 
@@ -301,8 +321,8 @@ Because `sei` does not mask NMI, `start` should also write `$7f` to `$dd0d` and
 read it back. Note that this masks CIA 2's *own* NMI sources only — **it does not
 stop RESTORE**, which is wired straight to `/NMI` through a monostable. Blocking
 RUN/STOP+RESTORE properly needs the NMI vector at `$0318/$0319` pointed at an
-`rti` as well; see `.claude/c64-reference/sid-cia.md`. No demo in this repo does
-that yet.
+`rti` as well; see `.claude/c64-reference/sid-cia.md`. `spritemove/main.asm`
+does (`nmi_ignore`, installed in `start`).
 `/c64-new` scaffolds this routine into `main.asm`.
 
 Reference implementation: `spritemove/main.asm` (`check_exit` / `exit_demo`).

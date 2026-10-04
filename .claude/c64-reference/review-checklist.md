@@ -62,7 +62,11 @@ which value, what the machine does instead of what was intended.
 - [ ] Handler ends correctly: `rti` for a raw handler, `jmp $ea31`/`$ea81` when chaining to
       the KERNAL.
 - [ ] Handler preserves A/X/Y (or the entry stub does).
-- [ ] Cycle budget accounts for badlines (~20 usable cycles on a badline vs 63 PAL).
+- [ ] **NTSC first:** the frame's work fits 17095 cycles (263 lines x 65) on NTSC, not just
+      19656 on PAL. Raster waits never target a line above `$106` (NTSC has none).
+- [ ] Cycle budget accounts for badlines (~20 usable cycles on a badline vs 65 NTSC / 63 PAL).
+- [ ] PSID music made for PAL is tempo-compensated on NTSC (e.g. skip every 6th play
+      call), or driven from a CIA timer instead of the frame.
 - [ ] Frame-sync polling waits for the raster to *leave* the trigger line, or the loop can
       run twice in one frame.
 
