@@ -7,9 +7,8 @@
 // WHY SPRITES
 // -----------
 // Sprites are the only thing on this machine that moves for free: eight
-// X/Y register pairs a frame and the VIC does the rest. The labels live
-// ONLY here - the bitmap behind them is pure picture - so there is one
-// copy of each word on screen at all times and nothing to hand over.
+// X/Y register pairs a frame and the VIC does the rest - and they sit
+// in front of the vertical bars without the bars ever having to know.
 //
 // THE PACKING
 // -----------
@@ -29,8 +28,9 @@
 // x_place spaces the date's sprites 24 pixels apart against the name's 48.
 //
 // Sprite n's data is at INTRO_SPR + n * 64, so its VIC block number is
-// INTRO_SPR / 64 + n. They live in VIC bank 1 with the intro's bitmap;
-// the demo proper uses its own sprites out of bank 0 and never sees these.
+// INTRO_SPR / 64 + n = $30 + n. They live at $0c00 in VIC bank 0, the
+// bank the whole intro runs in; the demo's ball sprites at $2000 take
+// the pointers back once the intro is over.
 //==================================================================
 
 #import "intro_text.asm"

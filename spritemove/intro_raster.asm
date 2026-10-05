@@ -1,16 +1,16 @@
 //==================================================================
 // INTRO_RASTER - the raster bar overture
 //
-// Imported by main.asm into VIC bank 1's spare RAM. Not buildable on its
+// Imported by main.asm into spare RAM at $6b00. Not buildable on its
 // own: it uses main.asm's register labels, row_offset_lo/hi, check_exit
 // and the sine table intro_sprites.asm generates at $6600.
 //
 // WHAT IT IS
 // ----------
-// The demo now opens BEFORE the bitmap intro, in plain text mode, with
+// The demo now opens with this, in plain text mode, with
 // eight raster bars flying over a black screen while the handle and five
-// labels arrive one at a time. Then it hands over to the bitmap intro
-// (intro.asm), which ends on a plain fade to black.
+// labels arrive one at a time. Then it hands over to intro.asm: the
+// title labels on black, then vertical bars, then a fade to black.
 //
 // HOW A BAR IS DRAWN
 // ------------------
@@ -251,8 +251,8 @@ ro_flash_end:
 //
 // Everything the VIC needs is written out in full rather than assumed:
 // this runs on a cold start, where the kernal's values are still in
-// place, AND on a restart from the R key, where the VIC may be half way
-// through the bitmap intro in bank 1.
+// place, AND on a restart from the R key, where the demo has had the VIC
+// to itself.
 //------------------------------------------------------------------
 rb_setup:
     // The off-screen half (music, keys, bar movement, the buffer rebuild)
@@ -278,15 +278,9 @@ rb_setup:
     sta rb_fade
     sta rb_step
 
-    lda #CTRL1_BLANK            // DEN off across the switch, for the same
-    sta VIC_CONTROL1            // reason intro_setup does it: on the R-key
-                                // restart path the VIC arrives here in
-                                // BITMAP mode out of bank 1, and for the ~20
-                                // cycles between the bank change and $d011
-                                // below it would be in bitmap mode out of
-                                // bank 0 - displaying the ball sprite data
-                                // at $2000 as a picture. Under half a
-                                // scanline, but free to make impossible.
+    lda #CTRL1_BLANK            // DEN off across the register writes below,
+    sta VIC_CONTROL1            // so no half-set mode is ever displayed -
+                                // whatever state the VIC arrives in.
 
     lda CIA2_DDR_A              // VA14/VA15 outputs, then VIC bank 0
     ora #$03

@@ -13,7 +13,6 @@
 // Files:  main.asm          the demo itself (this file)
 //         sprite_gen.asm    assembly-time ball graphics
 //         intro.asm         the opening sequence
-//         intro_gfx.asm     the intro's hi-res bitmap and cell field
 //         intro_sprites.asm the intro's label sprites and the sine table
 //         intro_text.asm    glyph rows lifted from the character ROM
 //         intro_raster.asm  the raster bar overture
@@ -45,13 +44,12 @@
 // implosion into a single line - while the handle and six labels fade up
 // one at a time between them. See intro_raster.asm.
 //
-// The hi-res bitmap intro then fades a title card - name, date and
-// version, as sprite labels - up out of black. A dithered retro sunset
-// grid (sky bands, a striped sun, a perspective floor) rises behind it,
-// its bands streaming away from the horizon in time with a SID tune
-// (Nightshift by Ari Yliaho). The labels lift off and float on damped
-// springs toward random targets, glide home, and everything fades to
-// black into the demo. See intro.asm.
+// The intro then fades a title card - name, date and version, as sprite
+// labels - up out of black and holds it there, with nothing behind it.
+// Vertical raster bars fade in and sweep sideways across the screen while
+// the labels lift off and float on damped springs toward random targets,
+// all to a SID tune (Nightshift by Ari Yliaho). The labels glide home and
+// everything fades to black into the demo. See intro.asm.
 //
 // The bottom two text rows are a menu: a legend of the keys on row 23 and
 // the speed bar and ball count on row 24. The cursor keys or + / - change
@@ -71,7 +69,7 @@
 //   4. Macros                          EaseVelocity, Negate16, ScaleVel
 //   5. start / main_loop               one-time setup, intro, then per frame:
 //        detect_video       (once) NTSC or PAL
-//        play_intro         (once) raster overture, bitmap intro + music,
+//        play_intro         (once) raster overture, labels + bars + music,
 //                           then the reveal
 //        init_mux           (once) hand the sprites to the raster IRQ
 //        check_exit         RUN/STOP / Q -> silence hardware, reset; R
@@ -94,7 +92,6 @@
 //   8. #import "sprite_gen.asm"        8 shaded ball frames
 //      #import "intro.asm"            the opening sequence (its own header)
 //      #import "music.asm"            PSID import of the intro tune
-//      #import "intro_gfx.asm"        sunset bitmap + its cell field
 //      #import "intro_sprites.asm"    the label sprites + sine table
 //      #import "intro_raster.asm"     the raster bar overture + fade-out bars
 //        (intro_sprites.asm pulls in intro_text.asm - glyph rows,
@@ -112,19 +109,15 @@
 //                pointers live at $07f8-$07ff inside the same 1K block)
 //   $0801        BASIC stub "10 SYS 8768"  (8768 = $2240)
 //   $0900-$0a0b  raster bar line buffer: one colour per raster line
+//   $0c00-$0dff  intro label sprites (8 x 64 bytes, VIC blocks $30-$37)
 //   $1000-$1d77  Nightshift.sid - player and music data, at its own load
 //                address (invisible to the VIC, which sees char ROM here)
 //   $2000-$21ff  8 ball frames, 64 bytes each  (VIC blocks $80-$87)
 //   $2240-$3fff  code and data tables (Main Code; ends ~$3580)
 //   $3fff        VIC idle fetch - what the VIC displays in the opened
 //                border, zeroed at start-up (see VIC_IDLE_FETCH)
-//   $4000-$5f3f  intro bitmap      (VIC bank 1, 8000 bytes)
-//   $6000-$63e7  intro video matrix (VIC bank 1, filled at run time)
-//   $63f8-$63ff  intro sprite pointers (VIC bank 1)
-//   $6400-$65ff  intro label sprites (VIC bank 1, 8 x 64 bytes)
 //   $6600-$66ff  intro sine table   (CPU only)
 //   $6b00-$73ff  intro_raster.asm's code and data (CPU only; ends ~$7190)
-//   $7400-$77e7  intro cell field   (1000 bytes, CPU only)
 //   $8400-$857f  BALL_STATE: 24 per-ball tables x 16
 //   $8600-$873f  the multiplexer's double-buffered write list
 //
@@ -272,11 +265,10 @@
 //                     the cell's original character and color are put back
 //                     (so a star underneath survives). Four sparks can be
 //                     on screen at once.
-//   * Intro reveal  - the opening runs in hi-res bitmap mode out of
-//                     VIC bank 1, so it shares nothing with the demo's
-//                     text screen and sprites; the handoff switches the
-//                     bank, $d018 and $d016 back with DEN off, and the
-//                     balls are simply there when it comes on. See
+//   * Intro reveal  - the opening runs in the demo's own text screen,
+//                     filled with solid blocks for the vertical bars; the
+//                     handoff clears it back to spaces with DEN off, and
+//                     the balls are simply there when it comes on. See
 //                     intro.asm for the animation itself.
 //   * Color swap    - colliding balls exchange body colors. A short
 //                     cooldown stops the swap bouncing back and forth
@@ -471,17 +463,14 @@ BasicUpstart2(start)            // emits a "10 SYS 8768" BASIC stub at $0801
 // The VIC has 8 hardware sprites; this demo multiplexes MAX_BALLS
 // logical balls across them with a raster IRQ (see mux_irq). Zero
 // page has no room for that: 18 tables x 16 balls is 288 bytes, more
-// than all of $02-$FF. So they live in ordinary RAM at $8400, clear of
-// the intro's wave field. The CPU sees RAM there whatever VIC bank is
+// than all of $02-$FF. So they live in ordinary RAM at $8400, well
+// clear of everything the intro assembles in. The CPU sees RAM there whatever VIC bank is
 // selected - bank switching only changes what the VIC CHIP fetches.
 //
-// They used to sit on top of Intro Wave A, on the theory that
-// the intro is finished before the first ball byte is written. That is
-// only true once: R replays the intro, whose wave field is assembled
-// in and never regenerated, so the second intro painted ball state as
-// colour indices. The .errorif lines after INTRO_WAVE_A keep the two
-// apart. Main Code (from $2240) can now grow all the way to the bitmap
-// at $4000 without touching either.
+// They used to sit on top of the intro's old cell fields, on the theory
+// that the intro is finished before the first ball byte is written.
+// That is only true once: R replays the intro, whose data is assembled
+// in and never regenerated.
 //
 // Moving off zero page costs nothing per access: `lda table,x` is 4
 // cycles whether table is zero page or absolute (only zero-page,X is
@@ -497,7 +486,7 @@ BasicUpstart2(start)            // emits a "10 SYS 8768" BASIC stub at $0801
 // change, not a relayout.
 //------------------------------------------------------------------
 .label MAX_BALLS    = 16        // compiled ceiling; active_balls <= this
-.label BALL_STATE   = $8400     // well past Intro Wave A ($7400-$77e7):
+.label BALL_STATE   = $8400     // clear of all assembled-in data:
                                  // free RAM (no cartridge, BASIC ROM is
                                  // not until $a000). NOT on top of the
                                  // wave fields - they are assembled-in
@@ -559,16 +548,15 @@ BasicUpstart2(start)            // emits a "10 SYS 8768" BASIC stub at $0801
 .label w_msb0       = WRITE_LIST + 9 * $20   // [0]/[16]: band 0's $d010
 
 // The intro's own variables (zero page; they share temp/temp2 with the demo).
-.label paint_page   = $02       // which 256-cell page the sweep is on
+.label bar_i        = $02       // bars_build: the bar being drawn
 .label fade_rate    = $03       // frames between fade steps
 .label spr_lvl      = $04       // label sprites' brightness, 0 black .. 7 full
 .label flow_t       = $05       // free-running frame count: hue + ripple
-.label bk_lvl       = $06       // backdrop brightness, 0 black .. 7 full
+.label bk_lvl       = $06       // the bars' brightness, 0 black .. 7 full
 .label flow_t3      = $07       // ripple phase along each label
 .label spr_msb      = $08       // X bit 8 bits gathered for $d010
-.label pal_phase    = $09       // position in the backdrop's color ramp
-.label pal_step     = $0a       // frames between ramp steps
-.label pal_tick     = $0b       // countdown to the next ramp step
+.label bar_x        = $09       // bars_build: its left column, signed
+.label bar_n        = $0a       // bars_build: columns left to draw
 .label intro_t      = $0c       // ticks left in the current phase
 .label bk_goal      = $0d       // the level bk_lvl is fading toward
 .label spr_goal     = $0e       // the level spr_lvl is fading toward
@@ -643,58 +631,40 @@ BasicUpstart2(start)            // emits a "10 SYS 8768" BASIC stub at $0801
 .label PING_COOL    = 6         // frames between pings (stops machine-gunning)
 .label PING_WALL    = $24       // wall bounce pitch (freq high byte)
 
-// Opening sequence. The bitmap lives in VIC bank 1 ($4000-$7fff): the
-// bitmap itself at the bottom of the bank, the video matrix 8K above it.
-.label INTRO_BITMAP = $4000     // 8000 bytes, generated in intro_gfx.asm
-.label INTRO_VM     = $6000     // 1000 video matrix cells, painted by
-                                // paint_sweep. In hi-res each byte is two
-                                // colors: high nibble ink, low nibble paper
-// The cell field used to sit at $3000, immediately before the bitmap,
-// and moved up here when Main Code grew past $3000. The VIC never
-// fetches it (paint_sweep reads it with the CPU only), so unlike the
-// bitmap it has no hardware reason to sit next to it. It must NOT share
-// memory with BALL_STATE: it is assembled-in data, and R replays the
-// intro from it. It has to start on a page boundary - set_page's page_lo
-// table assumes the field's low byte is $00.
-.label INTRO_WAVE_A = $7400   // the one cell field. From $7400, not right
-                              // after Intro Raster: that code segment
-                              // needs room to grow (it ends ~$718d)
-.errorif BALL_STATE < INTRO_WAVE_A + 1000, "BALL_STATE overlaps Intro Wave A"
 .errorif BALL_STATE + BALL_TABLES * MAX_BALLS > WRITE_LIST, "BALL_STATE runs into WRITE_LIST"
-.label INTRO_SPR    = $6400     // 8 x 64 bytes, the intro labels (bank 1)
-.label INTRO_SPR_PTR = (INTRO_SPR - $4000) / $40  // = $90. A VIC block number
-                                        // is relative to the START OF THE
-                                        // BANK, so the bank base has to come
-                                        // off first: INTRO_SPR / $40 would be
-                                        // $190, which only assembles at all
-                                        // because the immediate is truncated
-.label INTRO_SPR_PTRS = INTRO_VM + $3f8  // = $63f8, bank 1 sprite pointers
+
+// Opening sequence. After the overture everything runs in text mode
+// out of VIC bank 0, so the label sprites have to live in bank 0 too:
+// $0c00-$0dff is free RAM the VIC can see (the character ROM shadow is
+// only $1000-$1fff) and clear of RB_BUF ($0900-$0a0b) below it.
+.label INTRO_SPR    = $0c00     // 8 x 64 bytes, the intro labels (bank 0)
+.label INTRO_SPR_PTR = INTRO_SPR / $40   // = $30, the VIC block number
 .label INTRO_SIN    = $6600     // 256-entry sine, one period (intro_sprites)
-.label INTRO_Z_LEN  = 50        // black, the tune gets going  (~1.0 s PAL)
-.label INTRO_T_LEN  = 100       // the title fades in on black (~2.0 s)
-.label INTRO_A_LEN  = 120       // the sunset rises behind it  (~2.4 s)
-.label INTRO_F_LEN  = 200       // the labels float free, run twice:
-                                // intro_t is one byte (~2 x 4.0 s)
-.label INTRO_R_LEN  = 160       // they glide home and settle  (~3.0 s)
+.label INTRO_Z_LEN  = 30        // black after the overture    (~0.6 s PAL)
+.label INTRO_T_LEN  = 180       // the title fades in and holds (~3.6 s)
+.label INTRO_F_LEN  = 200       // the bars sweep and the labels float,
+                                // run twice: intro_t is one byte (~8 s)
+.label INTRO_R_LEN  = 160       // the labels glide home       (~3.2 s)
 .label INTRO_O_LEN  = 48        // everything fades to black   (~1.0 s)
 
 // The labels' home: the title card's resting place, in sprite
-// coordinates, centred across the 320-pixel screen. The name block is 4
-// X-expanded sprites (192 px), the date block 4 plain ones (96 px) with
-// "v1.0" packed under the date in the same sprites (see intro_sprites).
+// coordinates, centred on the screen. The name block is 4 X-expanded
+// sprites (192 x 16), the date block 4 plain ones (96 px wide) with
+// "v1.0" packed under the date in the same sprites (see intro_sprites):
+// 44 lines top to bottom, centred on line 150.
 .label NAME_HOME_X  = 24 + (320 - 192) / 2     // = 88
-.label NAME_HOME_Y  = 186
+.label NAME_HOME_Y  = 128
 .label DATE_HOME_X  = 24 + (320 - 96) / 2      // = 136
-.label DATE_HOME_Y  = 210
+.label DATE_HOME_Y  = 152
 
-// Where the wander may send them. Each label's own box, so the name
-// keeps to the sky and the date to the floor and they never cross. The
-// spring overshoots by a few percent at most, so every box keeps 8 px
-// clear of the visible edge (X 24..343, Y 50..249).
+// Where the wander may send them. Each label's own box - the name in the
+// top half, the date in the bottom - so they never cross. The spring
+// overshoots by a few percent at most, so every box keeps clear of the
+// visible edge (X 24..343, Y 50..249).
 .label NAME_MIN_X   = 32        // .. NAME_MIN_X + NAME_RNG_X = 144
 .label NAME_RNG_X   = 112
-.label NAME_MIN_Y   = 60        // .. 132, bottom row 148
-.label NAME_RNG_Y   = 72
+.label NAME_MIN_Y   = 60        // .. 124, bottom row 140
+.label NAME_RNG_Y   = 64
 .label DATE_MIN_X   = 32        // .. 240, right edge 336
 .label DATE_RNG_X   = 208
 .label DATE_MIN_Y   = 156       // .. 220, "v1.0" ends at 240
@@ -917,7 +887,7 @@ clear_loop:
     // The intro runs FIRST, because the SID player has zero page scratch of
     // its own and there is no guarantee it stays clear of ours. Everything
     // the demo needs is set up afterwards, once the tune has stopped.
-    jsr play_intro              // overture + sunset bitmap, ends in text mode
+    jsr play_intro              // overture + labels and bars, ends in text mode
                                 // with the display still off
 
     // Seed the RNG. The xorshift generator sticks at zero, so a bit is
@@ -1327,8 +1297,9 @@ bl_done:
 
 //------------------------------------------------------------------
 // The opening sequence lives in its own files: intro.asm is the code
-// (music + sunset bitmap + the handoff to text mode), intro_gfx.asm
-// generates the bitmap at assembly time, music.asm imports the tune.
+// (title labels, vertical bars, the handoff to the demo screen),
+// intro_sprites.asm builds the labels at assembly time, music.asm
+// imports the tune.
 // play_intro is called once from start, before anything else is set up.
 //------------------------------------------------------------------
 #import "intro.asm"
@@ -2794,18 +2765,16 @@ star_hi:    .fill STAR_COUNT, 0
 #import "sprite_gen.asm"
 
 //------------------------------------------------------------------
-// The intro tune (PSID, loads at its own $1000) and the intro's sunset
-// bitmap (8000 bytes at $4000, in VIC bank 1). Both are data only.
+// The intro tune (PSID, loads at its own $1000) and the intro's label
+// sprites ($0c00) and sine table ($6600). All data only.
 //------------------------------------------------------------------
 #import "music.asm"
-#import "intro_gfx.asm"
 #import "intro_sprites.asm"
 
 //------------------------------------------------------------------
 // The raster bar overture.
 // Code, so it needs somewhere to live: it goes in the spare RAM above the
-// intro's sine table, inside VIC bank 1 but well clear of everything the
-// VIC is pointed at there (bitmap $4000, matrix $6000, sprites $6400).
+// intro's sine table, at $6b00 - RAM the VIC is never pointed at.
 // It started out in Main Code's spare RAM; that ran out first.
 //------------------------------------------------------------------
 #import "intro_raster.asm"

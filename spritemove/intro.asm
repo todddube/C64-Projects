@@ -1,45 +1,50 @@
 //==================================================================
-// INTRO - the opening sequence: music, a retro sunset-grid bitmap, the
-// title labels floating over it, then a fade into the demo
+// INTRO - the opening sequence after the raster bar overture: the
+// title labels on black, a pause, then vertical raster bars sweeping
+// sideways while the labels float, and a fade into the demo
 //
-// Imported by main.asm into its code segment. The bitmap and its cell
-// field are in intro_gfx.asm, the label sprites in intro_sprites.asm, the
-// tune in music.asm.
+// Imported by main.asm into its code segment. The label sprites are in
+// intro_sprites.asm, the tune in music.asm. The overture before this is
+// intro_raster.asm, and it leaves exactly what this needs: text mode out
+// of VIC bank 0, a screen of spaces, every color black, the tune playing.
 //
-// HOW THE BACKDROP ANIMATES
-// -------------------------
-// The bitmap never changes. It is a HI-RES picture - 320 x 200, one bit
-// per pixel - so a cell has exactly two colors and both come from its
-// video matrix byte:
+// VERTICAL BARS IN TEXT MODE
+// --------------------------
+// The overture's bars are horizontal: one color per RASTER LINE, written
+// as the beam passes. Vertical bars are the other axis - one color per
+// COLUMN - and a column is something text mode already has. Fill the
+// screen with the solid block (screen code $a0, reverse space) and every
+// cell shows nothing but its color RAM nibble, so
 //
-//     bit 1  ->  high nibble  (the "ink")
-//     bit 0  ->  low  nibble  (the "paper")
+//     col_buf[x]  ->  color RAM, every row, column x
 //
-// Color RAM and $d021 are both unused in this mode, so a cell costs ONE
-// byte to recolor. The animation is: leave the picture alone, rewrite the
-// 1000 video matrix bytes. paint_sweep does it with one lookup per cell
+// is the whole effect. bars_build draws five shaded bars into the 40-byte
+// col_buf from sines, and two unrolled copies spread it down the screen.
+// No raster polling at all, so the frame has room for the labels too.
 //
-//       ldy field,x : lda vmtab,y : sta vm,x
+// RACING THE BEAM, NOT DOUBLE BUFFERING
+// -------------------------------------
+// Color RAM is at a fixed address; it cannot be double buffered. So the
+// copy is split and timed against the beam instead:
 //
-// at 18 cycles a cell - two 256-cell pages a frame, the whole screen
-// every two frames, for about 9200 cycles. build_tabs rebuilds the
-// 16-entry vmtab each frame from the ramp phase AND the fade level, so a
-// fade costs nothing extra: it is just a different table.
+//   sync at line 250
+//   flow_sprites   sprite registers, below every label           ~800
+//   copy_rows0     rows 0-5,   needed by line 51                 ~1560
+//   copy_rows6     rows 6-12,  needed by line 99                 ~1760
+//   music_tick     the tune, check_exit                          ~1800
+//   copy_rows13    rows 13-24, needed by line 155                ~2760
+//   wander         next frame's label positions                  ~600
+//   bars_build     next frame's col_buf                          ~1200
 //
-// The one field (intro_gfx.asm) makes the sky's bands drift up and the
-// floor's roll down toward the viewer, both away from the horizon, so the
-// sunset streams out from behind the sun. It never switches to another
-// field - the old intro cycled through four, and that much change under
-// the title was the problem this version fixes.
+// Each block is column by column, so its TOP row is the last one
+// finished: rows 0-12 as one block measured done at NTSC line 56, five
+// lines after row 0 starts drawing. Three blocks put the deadline on
+// each block's top row instead, and every one is met with margin.
 //
-// FADES, NOT CUTS
-// ---------------
-// Every transition is a brightness fade. bk_lvl (backdrop) and spr_lvl
-// (labels) run 0 = black .. 7 = full and step one level every fade_rate
-// frames toward bk_goal / spr_goal. A phase just sets the goals; the
-// fades run themselves. fade_tab maps (level, color) to a darker color
-// of the same family by luminance, so a fade passes through real shades
-// - orange to brown to black - instead of snapping.
+// About 10500 cycles of the NTSC frame's 17095, and the beam never
+// overtakes a write: every row shows one frame's col_buf, never half of
+// two. On PAL the vertical blank is 49 lines longer, so it only gets
+// easier.
 //
 // THE LABELS
 // ----------
@@ -47,67 +52,64 @@
 // grouped into two bodies: the name (sprites 0-3) and the date with the
 // version under it (4-7). Each body is a damped spring on X and Y,
 // pulled toward a target that the wander re-picks at random every 2-3
-// seconds, inside a box of its own. With the spring critically-ish
-// damped (k = 1/512, damping 1/16 a frame: zeta ~0.7) a new target is
-// never a jump - the label accelerates, glides, and eases in with a few
-// percent of overshoot, and a target that changes mid-glide just bends
-// the path. The two bodies retarget on their own timers, so they never
-// move in step. A small ripple runs along each word on top.
+// seconds, inside a box of its own. With k = 1/512 and damping 1/16 a
+// frame (zeta ~0.7) a new target is never a jump - the label accelerates,
+// glides, and eases in with a few percent of overshoot, and a target that
+// changes mid-glide just bends the path. The two bodies retarget on their
+// own timers, so they never move in step. A small ripple runs along each
+// word on top.
+//
+// FADES, NOT CUTS
+// ---------------
+// bk_lvl (the bars) and spr_lvl (the labels) run 0 = black .. 7 = full
+// and step one level every fade_rate frames toward bk_goal / spr_goal.
+// A phase just sets the goals. fade_tab maps (level, color) to a darker
+// shade of the same hue, so a bar fades blue -> dark blue -> black
+// rather than snapping.
 //
 // THE PHASES (lengths in tune ticks - see BeatDec)
 // ----------
-//   Z  black, the tune gets going
-//   T  the labels fade in on black at their home - the title card
-//   A  the sunset fades up behind the title, slowly
-//   F  the labels lift off and float; the backdrop dims a little so
-//      they read against it
-//   R  they glide home, settle exactly, and the backdrop comes back up
-//   O  everything fades to black together, and the demo takes over
-//      from a black screen, so the mode switch never shows
+//   Z  black: a breath after the overture
+//   T  the labels fade in on black at their home, then hold - the title
+//      card, with nothing behind it
+//   F  the bars fade in and sweep, and the labels lift off and float
+//   R  the labels glide home and settle exactly; the bars keep going
+//   O  bars and labels fade to black together, and the demo takes over
+//      from a black screen
 //
-// RUN/STOP works throughout: intro_sync calls check_exit every frame.
+// RUN/STOP works throughout: every frame calls check_exit.
 //==================================================================
 
 //------------------------------------------------------------------
-// play_intro - run the whole opening sequence, then leave the VIC in
-// text mode with the display still off, ready for start to draw the
-// stars and the status bar before it enables DEN.
+// play_intro - the overture, then the sequence above. Returns in text
+// mode out of bank 0 with the display OFF and a screen of spaces, ready
+// for start to draw the stars and the status bar before it enables DEN.
 //------------------------------------------------------------------
 play_intro:
-    // The raster bar overture comes FIRST, in plain text mode, and it is
-    // what starts the tune. See intro_raster.asm: it returns with the
-    // screen black and the titles cleared away, so the switch into bitmap
-    // mode below is as invisible as the one back out.
+    // The raster bar overture comes FIRST, and it is what starts the tune.
+    // See intro_raster.asm: it returns with the screen black and the
+    // titles cleared away.
     jsr raster_titles
 
     jsr intro_setup
 
-    //---- Phase Z: black while the tune gets going ----
+    //---- Phase Z: a breath of black after the overture ----
     lda #INTRO_Z_LEN
     jsr intro_phase
 
-    //---- Phase T: the title card fades in on black ----
+    //---- Phase T: the title card fades in on black, then holds ----
     jsr flow_logo_on            // on, but at spr_lvl 0: black on black
     lda #$07
     sta spr_goal
-    lda #$04                    // 28 frames up
+    lda #$04                    // 28 frames up, then the pause
     sta fade_rate
     lda #INTRO_T_LEN
     jsr intro_phase
 
-    //---- Phase A: the sunset rises behind the title ----
+    //---- Phase F: the bars come up and the labels float free ----
     lda #$07
     sta bk_goal
-    lda #$0c                    // a slow sunrise: 84 frames up
-    sta fade_rate
-    lda #INTRO_A_LEN
-    jsr intro_phase
-
-    //---- Phase F: the labels float free ----
-    lda #$04                    // hold the picture back so the one-color
-    sta bk_goal                 // sprites read against it: at level 4 no
-                                // backdrop color is brighter than grey
-    lda #$08
+    lda #$08                    // the bars fade in over ~1 s while they move
     sta fade_rate
     lda #$01
     sta wander_on
@@ -119,7 +121,7 @@ play_intro:
     lda #INTRO_F_LEN            // twice: a phase length is one byte
     jsr intro_phase
 
-    //---- Phase R: home again, and the picture comes back up ----
+    //---- Phase R: the labels glide home ----
     lda #$00
     sta wander_on               // also eases the ripple back out
     ldx #$03
@@ -130,10 +132,6 @@ pr_home:
     bpl pr_home
     lda #$01
     sta homing                  // snap the last pixel once they are slow
-    lda #$07
-    sta bk_goal
-    lda #$0c
-    sta fade_rate
     lda #INTRO_R_LEN
     jsr intro_phase
 
@@ -146,49 +144,43 @@ pr_home:
     lda #INTRO_O_LEN
     jsr intro_phase
 
-    lda #$00                    // the labels are black by now: switching
-    sta VIC_SPRITE_ENABLE       // them off is invisible
-    jmp intro_to_text           // tail call: back to text mode, display off
+    jmp intro_to_text           // tail call: sprites off, screen cleared
 
 //------------------------------------------------------------------
-// intro_phase - run one phase of A tune ticks: sync, labels, paint.
+// intro_phase - run one phase of A tune ticks. One frame is the
+// beam-raced sequence described in the header; the order matters.
 //------------------------------------------------------------------
 intro_phase:
     sta intro_t
 ip_loop:
-    jsr intro_sync
-    jsr flow_sprites            // sprite registers first, at the top
-    jsr intro_paint
+    jsr intro_sync              // line 250
+    jsr flow_sprites            // sprite registers, below every label
+    jsr copy_rows0              // rows 0-5 ahead of the beam
+    jsr copy_rows6              // rows 6-12
+    jsr music_tick              // one tick of the tune
+    jsr check_exit              // RUN/STOP bails out of the intro
+    jsr copy_rows13             // rows 13-24
+    jsr wander                  // next frame's label positions
+    jsr step_fades
+    jsr bars_move
+    jsr bars_build              // next frame's col_buf
     BeatDec(intro_t)            // in tune ticks, not frames (NTSC)
     bne ip_loop
     rts
 
 //------------------------------------------------------------------
-// intro_paint - one frame of the backdrop: fades, ramp, table, sweep.
-//------------------------------------------------------------------
-intro_paint:
-    jsr step_fades
-    jsr advance_palette
-    jsr build_tabs
-    jmp paint_sweep             // tail call
-
-//------------------------------------------------------------------
-// intro_setup - black bitmap field, VIC into hi-res bitmap mode out of
-// bank 1, every fade at black and both labels parked at home.
+// intro_setup - a screen of solid blocks in black, every fade at black,
+// both labels parked at home, the bars at their starting phases.
 //
-// The field is painted black *before* the mode switch, so the first thing
-// the VIC shows in bitmap mode is a clean black screen rather than
-// whatever was in $6000. Everything here is reset, not assumed: R replays
-// the whole intro.
+// Everything here is reset, not assumed: R replays the whole intro.
+// The overture left color RAM black, so filling the screen with blocks
+// is invisible - black blocks on a black background.
 //------------------------------------------------------------------
 intro_setup:
     lda #$00
     sta VIC_SPRITE_ENABLE       // no sprites until the title card
     sta VIC_BORDER
-    sta VIC_BACKGROUND          // unused in hi-res bitmap, kept black so
-                                // the switch in and out of the mode is clean
-    sta pal_phase
-    sta paint_page              // the sweep starts at the top of the screen
+    sta VIC_BACKGROUND
     sta bk_lvl                  // everything starts black...
     sta bk_goal
     sta spr_lvl
@@ -199,9 +191,6 @@ intro_setup:
     sta homing
     lda #$08
     sta ripple_sh               // ripple off: 8 shifts leave nothing
-    lda #$05                    // the ramp steps every 5 frames: a slow,
-    sta pal_step                // steady stream, never a flicker
-    sta pal_tick
     lda #$01
     sta fade_tick
     lda #$04
@@ -219,64 +208,164 @@ is_home:
     dex
     bpl is_home
 
+    ldx #BAR_COUNT - 1          // every bar back at its starting phase
+is_bars:
+    lda #$00
+    sta bar_ph_lo, x
+    lda bar_off, x
+    sta bar_ph_hi, x
+    dex
+    bpl is_bars
+
     lda CIA1_TIMER_A_LO         // seed the wander from the free-running
     eor VIC_RASTER              // jiffy timer and the beam, so each run
     ora #$01                    // floats differently. An LFSR must never
     sta rnd                     // hold 0, hence the ora
 
-    jsr flash_field             // all-black field before anything is visible
-
-    lda #CTRL1_BLANK            // DEN off across the switch: for the ~20
-    sta VIC_CONTROL1            // cycles between the bank change and $d018
-                                // the VIC would otherwise be in text mode
-                                // reading bitmap bytes as a screen.
-
-    lda CIA2_DDR_A              // VA14/VA15 have to be outputs to select a bank
-    ora #$03
-    sta CIA2_DDR_A
-    lda CIA2_PORT_A             // VIC bank 1 = $4000-$7fff
-    and #$fc
-    ora #$02
-    sta CIA2_PORT_A
-    lda #$80                    // video matrix $6000, bitmap $4000
-    sta VIC_MEMORY_SETUP
-    lda #$08                    // MCM OFF: hi-res, 320 pixels, 40 columns
-    sta VIC_CONTROL2
-    lda #$3b                    // BMM (bit 5) on, DEN on: the bitmap appears
-    sta VIC_CONTROL1
-
-    // The tune is NOT started here. raster_titles runs before this and
-    // calls MUSIC_INIT itself, so re-initialising it now would restart the
-    // song from bar one just as the bitmap arrives.
+    ldx #$00                    // col_buf, color RAM and the screen: black
+    txa                         // everywhere, so the blocks go in unseen
+is_col:
+    sta col_buf, x
+    inx
+    cpx #40
+    bne is_col
+    ldx #$00
+is_screen:
+    lda #$00
+    sta COLOR_RAM, x
+    sta COLOR_RAM + $100, x
+    sta COLOR_RAM + $200, x
+    sta COLOR_RAM + $2e8, x
+    lda #$a0                    // reverse space: a solid 8 x 8 block in its
+    sta SCREEN_RAM, x           // color RAM color. Stops at $07e7, short of
+    sta SCREEN_RAM + $100, x    // the sprite pointers at $07f8
+    sta SCREEN_RAM + $200, x
+    sta SCREEN_RAM + $2e8, x
+    inx
+    bne is_screen
     rts
 
 //------------------------------------------------------------------
-// intro_sync - one frame of housekeeping: lower-border sync, music,
-// RUN/STOP. The caller then has the rest of the frame.
+// intro_sync - wait for line 250. The frame's work follows in
+// intro_phase, in the order the beam needs it.
 //------------------------------------------------------------------
 intro_sync:
-    lda #$fa                    // same line 250 sync as the main loop
+    lda #$fa
 is_wait:
     cmp VIC_RASTER
     bne is_wait
-    jsr music_tick              // one tick of the tune, at a fixed raster
-    jsr check_exit              // RUN/STOP bails out of the intro
-    lda #$fa                    // do not run twice on the same line
-is_leave:
-    cmp VIC_RASTER
-    beq is_leave
     rts
 
 //------------------------------------------------------------------
-// advance_palette - age the rotation counter and step the ramp phase.
+// copy_rows0 / copy_rows6 / copy_rows13 - col_buf down a block of rows
+// of color RAM, column by column, unrolled over the rows: 5 cycles a
+// cell. Split three ways so each block is done before the beam reaches
+// its first row (see the header).
 //------------------------------------------------------------------
-advance_palette:
-    BeatDec(pal_tick)
-    bne ap_done
-    lda pal_step                // reload and step the phase on
-    sta pal_tick
-    inc pal_phase
-ap_done:
+.macro CopyRows(first, last) {
+    ldx #39
+loop:
+    lda col_buf, x
+    .for (var r = first; r <= last; r++) {
+        sta COLOR_RAM + r * 40, x
+    }
+    dex
+    bpl loop
+    rts
+}
+copy_rows0:     CopyRows(0, 5)
+copy_rows6:     CopyRows(6, 12)
+copy_rows13:    CopyRows(13, 24)
+
+//------------------------------------------------------------------
+// bars_move - advance every bar's 8.8 phase by its own speed. The
+// speeds are fractions of a sine step a frame, so a bar's widest swing
+// takes several seconds and its fastest moment is under half a column a
+// frame: at character resolution any faster reads as jumping.
+//------------------------------------------------------------------
+bars_move:
+    ldx #BAR_COUNT - 1
+bm_loop:
+    lda bar_ph_lo, x
+    clc
+    adc bar_spd, x
+    sta bar_ph_lo, x
+    lda bar_ph_hi, x
+    adc #$00
+    sta bar_ph_hi, x
+    dex
+    bpl bm_loop
+    rts
+
+//------------------------------------------------------------------
+// bars_build - draw this frame's bars into col_buf.
+//
+// A bar's left column is
+//
+//     left = ctr + asr(sin(ph) - 128, sh) - BAR_W / 2
+//
+// as a SIGNED byte, so a bar can hang off either edge: a cell is drawn
+// only when left + i is under 40, and a negative column, read unsigned,
+// is 128 or more and fails that same test - one compare clips both
+// sides. Later bars are drawn over earlier ones, so they pass in front.
+// Every color goes through fade_tab at bk_lvl on the way in.
+//------------------------------------------------------------------
+bars_build:
+    lda bk_lvl                  // level * 16: the row of fade_tab to read
+    asl
+    asl
+    asl
+    asl
+    sta bk_off
+    lda #$00                    // black between the bars
+    ldx #39
+bb_clear:
+    sta col_buf, x
+    dex
+    bpl bb_clear
+
+    ldx #$00
+bb_bar:
+    stx bar_i
+    ldy bar_ph_hi, x
+    lda INTRO_SIN, y            // 0..255 ...
+    sec
+    sbc #$80                    // ...as -128..127, centred on ctr
+    ldy bar_sh, x
+bb_shift:
+    cmp #$80                    // carry = sign
+    ror                         // arithmetic shift right
+    dey
+    bne bb_shift
+    clc
+    adc bar_ctr, x              // ctr already has BAR_W / 2 taken off
+    sta bar_x                   // the left column, signed
+
+    lda bar_strip, x            // this bar's shading, BAR_W colors
+    tay
+    ldx bar_x
+    lda #BAR_W
+    sta bar_n
+bb_cell:
+    cpx #40                     // off either edge: skip the cell
+    bcs bb_skip
+    lda bar_shades, y
+    ora bk_off
+    sty temp
+    tay
+    lda fade_tab, y
+    sta col_buf, x
+    ldy temp
+bb_skip:
+    inx
+    iny
+    dec bar_n
+    bne bb_cell
+
+    ldx bar_i
+    inx
+    cpx #BAR_COUNT
+    bne bb_bar
     rts
 
 //------------------------------------------------------------------
@@ -309,73 +398,22 @@ sf_done:
     rts
 
 //------------------------------------------------------------------
-// build_tabs - this frame's 16-entry lookup table for paint_sweep.
-//
-//   ink    pal_ramp at the cell's ramp position, high nibble
-//   paper  dark_ramp half a turn behind, low nibble - mostly black, so
-//          the pattern sits on a dark field the way $d021 did in
-//          multicolor (hi-res has no background color to anchor it)
-//
-// Both pass through fade_tab at bk_lvl, so the fade is folded into the
-// same table the rotation is. ~16 x 60 cycles: about 1000 a frame.
-//------------------------------------------------------------------
-build_tabs:
-    lda bk_lvl                  // level * 16: the row of fade_tab to read
-    asl
-    asl
-    asl
-    asl
-    sta bk_off
-    ldx #$00
-bt_loop:
-    txa                         // this entry's place in the ramp
-    clc
-    adc pal_phase
-    and #$0f
-    sta temp2
-    tay
-    lda pal_ramp, y             // the ink...
-    ora bk_off
-    tay
-    lda fade_hi, y              // ...faded, already in the high nibble
-    sta temp
-    lda temp2                   // the paper, half a turn behind
-    clc
-    adc #$08
-    and #$0f
-    tay
-    lda dark_ramp, y
-    ora bk_off
-    tay
-    lda fade_tab, y
-    ora temp
-    sta vmtab, x
-    inx
-    cpx #$10
-    bne bt_loop
-    rts
-
-//------------------------------------------------------------------
 // flow_logo_on - point the VIC at the label sprites and switch them on.
-//
-// The sprite pointers live at $63f8, the last eight bytes of the video
-// matrix page. paint_sweep and flash_field both stop at $63e7, so they
-// can never walk over them. Called at spr_lvl 0, so the labels come on
-// black and fade up from there.
+// Called at spr_lvl 0, so the labels come on black and fade up.
 //------------------------------------------------------------------
 flow_logo_on:
     ldx #$07
 flo_ptr:
     txa
     clc
-    adc #INTRO_SPR_PTR          // block $90 + n
-    sta INTRO_SPR_PTRS, x
+    adc #INTRO_SPR_PTR          // block $30 + n
+    sta SPRITE_PTRS, x
     dex
     bpl flo_ptr
     lda #$00
     sta VIC_SPRITE_MULTI        // hi-res, one color each
     sta VIC_SPRITE_EXPAND_Y
-    sta VIC_SPRITE_PRIORITY     // in front of the picture
+    sta VIC_SPRITE_PRIORITY     // in front of the bars
     // Put real coordinates in $d000-$d00f BEFORE enabling: until
     // flow_sprites has run they hold whatever the kernal left.
     jsr flow_sprites
@@ -387,22 +425,20 @@ flo_ptr:
     rts
 
 //------------------------------------------------------------------
-// flow_sprites - write the eight label sprites, then move the labels on
-// for next frame.
+// flow_sprites - write the eight label sprites from the current body
+// positions.
 //
 //   X   the body's X + the sprite's place in its word (0/48/96/144 for
 //       the X-expanded name, 0/24/48/72 for the 1:1 date block)
-//   Y   the body's Y + a ripple: sin(flow_t3 + a quarter turn per
+//   Y   the body's Y + a ripple: sin(flow_t3 + an eighth of a turn per
 //       sprite) >> ripple_sh, so a wave runs along the word. ripple_sh 8
 //       is flat; the wander eases it to 6 (0..3 px) and back
 //   col a hue that walks along the word, through fade_tab at spr_lvl
 //
-// The registers are written FIRST, from last frame's positions, and the
-// springs run after. That keeps every write right after intro_sync, at
-// the top of the frame: below the lowest label (the date's last row is
-// at most line 244) and far above the highest (Y 57). Moving a
-// sprite's Y while the raster is inside it drops or doubles it for a
-// frame. One frame of latency in where a label is drawn is invisible.
+// Called first thing after the line-250 sync: below the lowest label
+// (the date's last row is at most line 244) and far above the highest
+// (Y 56). Moving a sprite's Y while the raster is inside it drops or
+// doubles it for a frame.
 //------------------------------------------------------------------
 flow_sprites:
     lda spr_lvl                 // level * 16: the row of fade_tab to read
@@ -475,7 +511,7 @@ fs_ripple:
     bne fs_loop
     lda spr_msb
     sta VIC_SPRITE_X_MSB
-    // fall through: move the labels on for next frame
+    rts
 
 //------------------------------------------------------------------
 // wander - next frame's label positions: retarget, ripple, springs.
@@ -582,7 +618,7 @@ rn_done:
 //
 // k = 1/512 and damping 1/16 give zeta ~0.7: the label eases in with a
 // few percent of overshoot and settles in about two seconds. Peak speed
-// across the widest box is ~4 px a frame.
+// across the widest box is ~3 px a frame.
 //
 // While homing, an axis within -2..+1 px of its target and nearly still
 // (|vel| < 1/4 px) is snapped onto it and stopped, so the labels come to
@@ -670,6 +706,46 @@ sp_asr:
     rts
 
 //------------------------------------------------------------------
+// intro_to_text - hand the machine to the demo: display off, sprites
+// off, a screen of spaces, text mode out of bank 0. start then draws the
+// stars and status bar into a screen nobody can see yet and enables DEN.
+// The blocks go with DEN off - everything is black by now anyway.
+//
+// The music is left running until init_sound zeroes the SID.
+//------------------------------------------------------------------
+intro_to_text:
+    lda #CTRL1_BLANK            // DEN off: nothing shows while we clear
+    sta VIC_CONTROL1
+    lda #$00
+    sta VIC_SPRITE_ENABLE       // the labels are black by now
+    sta VIC_SPRITE_EXPAND_X     // the balls are never expanded
+    sta VIC_BORDER              // the black the demo runs on
+    sta VIC_BACKGROUND
+    ldx #$00
+itt_clear:
+    lda #$20                    // start cleared the screen BEFORE the
+    sta SCREEN_RAM, x           // intro and does not do it again, so the
+    sta SCREEN_RAM + $100, x    // blocks have to go here
+    sta SCREEN_RAM + $200, x
+    sta SCREEN_RAM + $2e8, x
+    lda #$00
+    sta COLOR_RAM, x
+    sta COLOR_RAM + $100, x
+    sta COLOR_RAM + $200, x
+    sta COLOR_RAM + $2e8, x
+    inx
+    bne itt_clear
+    lda CIA2_PORT_A             // VIC bank 0 - the overture set it already;
+    and #$fc                    // restated so this does not depend on it
+    ora #$03
+    sta CIA2_PORT_A
+    lda #$14                    // screen $0400, character ROM at $1000
+    sta VIC_MEMORY_SETUP
+    lda #$08                    // MCM off, 40 columns, no X scroll
+    sta VIC_CONTROL2
+    rts
+
+//------------------------------------------------------------------
 // The two label bodies, one entry per axis:
 //   0 name X   1 name Y   2 date X   3 date Y
 // Reset by intro_setup on every run (R replays the intro).
@@ -682,7 +758,7 @@ ax_tgt:     .fill 4, 0
 wander_t:   .fill 2, 0          // frames until each body's next target
 wander_on:  .byte 0             // nonzero while the labels float free
 homing:     .byte 0             // nonzero: snap onto the target when close
-bk_off:     .byte 0             // bk_lvl * 16, for build_tabs
+bk_off:     .byte 0             // bk_lvl * 16, for bars_build
 spr_off:    .byte 0             // spr_lvl * 16, for flow_sprites
 
 ax_home:    .byte NAME_HOME_X, NAME_HOME_Y, DATE_HOME_X, DATE_HOME_Y
@@ -701,143 +777,55 @@ x_place:  .byte $00, $30, $60, $90, $00, $18, $30, $48
 msb_bit:  .byte $01, $02, $04, $08, $10, $20, $40, $80
 y_ripple: .byte $00, $20, $40, $60, $00, $20, $40, $60
 
-spr_ramp:                       // The labels' colors, and every one of them
-    .byte $03, $03, $03, $03    // is a BRIGHT color the backdrop never
-    .byte $0d, $0d, $0d, $0d    // shows. A hi-res sprite has one color and
-    .byte $01, $01, $01, $01    // no outline, so hue and brightness are all
-    .byte $0e, $0e, $0e, $0e    // that keeps the letters off the picture:
-                                // cyan, light green, white and light blue,
-                                // over a sunset of reds and oranges that
-                                // phase F dims to no brighter than grey.
+spr_ramp:                       // The labels' colors: white, yellow, cyan
+    .byte $01, $01, $01, $01    // and light green, the four brightest the
+    .byte $07, $07, $07, $07    // machine has. A hi-res sprite has one color
+    .byte $03, $03, $03, $03    // and no outline, so brightness is what
+    .byte $0d, $0d, $0d, $0d    // keeps the letters off the bars - and
+                                // bar_shades below never goes brighter
+                                // than light blue / light red / green.
 
 //------------------------------------------------------------------
-// paint_sweep - recolor TWO 256-cell pages of the screen from the
-// field, then leave the sweep on the next pair.
+// The vertical bars. Five of them, each BAR_W columns of shading from
+// dark edge to mid-bright core, so a bar reads as a rounded tube and its
+// one-column steps soften at the edges. Three swing wide (+/-32 columns,
+// most of the screen) and two narrower about the thirds; every speed is
+// different, so the bars cross and re-cross and never settle into a
+// pattern.
 //
-// `jsr paint_page_once` followed by falling straight into it runs the
-// body twice with one copy of the code; the rts at the end serves both.
-//
-// Page 3 is the $2e8 overlap that lands the four pages exactly on 1000
-// bytes. It rewrites the tail of page 2, which is harmless, and stops at
-// $63e7 - eleven bytes short of the sprite pointers at $63f8.
+//   off    starting phase (high byte; the low byte starts at 0)
+//   spd    phase step a frame, in 1/256ths of a sine step
+//   sh     amplitude as a shift: 2 = +/-32 columns, 3 = +/-16
+//   ctr    centre column, less BAR_W / 2 so the sum is the left column
+//   strip  which shading, as an offset into bar_shades
 //------------------------------------------------------------------
-paint_sweep:
-    jsr paint_page_once
-paint_page_once:
-    jsr set_page
-    ldx #$00
-ps_loop:
-ps_wave:
-    ldy INTRO_WAVE_A, x         // <- patched: field + page
-    lda vmtab, y                // ink in the high nibble, paper in the low
-ps_vm:
-    sta INTRO_VM, x             // <- patched: video matrix + page
-    inx
-    bne ps_loop
-    inc paint_page
-    lda paint_page
-    and #$03
-    sta paint_page
-    rts
+.label BAR_COUNT = 5
+.label BAR_W     = 7
+bar_off:    .byte $00, $55, $aa, $40, $c0
+bar_spd:    .byte $90, $b0, $70, $d0, $a0
+bar_sh:     .byte 2, 2, 2, 3, 3
+bar_ctr:    .byte 20 - 3, 20 - 3, 20 - 3, 12 - 3, 28 - 3
+bar_strip:  .byte 0 * BAR_W, 1 * BAR_W, 2 * BAR_W, 3 * BAR_W, 4 * BAR_W
+bar_ph_lo:  .fill BAR_COUNT, 0
+bar_ph_hi:  .fill BAR_COUNT, 0
 
-//------------------------------------------------------------------
-// set_page - patch paint_sweep's two addresses for the current page.
-// The field is page aligned, so the low byte of the page offset can be
-// stored into both without any carry handling.
-//------------------------------------------------------------------
-set_page:
-    ldx paint_page
-    lda page_lo, x
-    sta ps_wave + 1
-    sta ps_vm + 1
-    lda page_hi, x
-    clc
-    adc #>INTRO_WAVE_A
-    sta ps_wave + 2
-    lda page_hi, x
-    clc
-    adc #>INTRO_VM
-    sta ps_vm + 2
-    rts
+bar_shades:
+    .byte $06, $06, $0e, $0e, $0e, $06, $06     // blue
+    .byte $09, $02, $02, $0a, $02, $02, $09     // red
+    .byte $0b, $05, $05, $05, $05, $05, $0b     // green
+    .byte $06, $04, $04, $04, $04, $04, $06     // purple
+    .byte $09, $09, $08, $08, $08, $09, $09     // orange
 
-page_lo:  .byte $00, $00, $00, $e8   // the four page offsets into 1000 bytes
-page_hi:  .byte $00, $01, $02, $02
-
-//------------------------------------------------------------------
-// flash_field - fill the whole video matrix with black, before the
-// bitmap is switched on.
-//------------------------------------------------------------------
-flash_field:
-    lda #$00
-    ldx #$00
-ff_loop:
-    sta INTRO_VM, x
-    sta INTRO_VM + $100, x
-    sta INTRO_VM + $200, x
-    sta INTRO_VM + $2e8, x
-    inx
-    bne ff_loop
-    rts
-
-//------------------------------------------------------------------
-// intro_to_text - undo everything intro_setup did to the VIC, leaving
-// text mode out of bank 0 with the display OFF. start then draws the
-// stars and status bar into a screen nobody can see yet and enables DEN.
-//
-// The music is left running until init_sound zeroes the SID.
-//------------------------------------------------------------------
-intro_to_text:
-    lda #$0b                    // DEN off: nothing shows while we switch
-    sta VIC_CONTROL1
-    lda CIA2_PORT_A             // back to VIC bank 0
-    and #$fc
-    ora #$03
-    sta CIA2_PORT_A
-    lda #$14                    // screen $0400, character ROM at $1000
-    sta VIC_MEMORY_SETUP
-    lda #$08                    // MCM off, 40 columns, no X scroll
-    sta VIC_CONTROL2
-    lda #$00                    // the black the demo runs on
-    sta VIC_BORDER
-    sta VIC_BACKGROUND
-    rts
-
-//------------------------------------------------------------------
-// This frame's lookup table, indexed by a cell's field value 0-15.
-// Rebuilt by build_tabs once a frame. Aligned so paint_sweep's 512
-// `lda vmtab,y` a frame never cross a page.
-//------------------------------------------------------------------
-.align $10
-vmtab:  .fill 16, 0
-
-//------------------------------------------------------------------
-// The backdrop's color ramp. It has to be cyclic - entry 15 leads back
-// into entry 0 - or the rotation would jump. Black -> blue -> purple ->
-// red -> orange -> yellow -> white and back, so the bands pulse like
-// embers.
-//------------------------------------------------------------------
-pal_ramp:
-    .byte $00, $06, $04, $02    // black, blue, purple, red
-    .byte $08, $07, $01, $01    // orange, yellow, white, white
-    .byte $07, $08, $02, $04    // yellow, orange, red, purple
-    .byte $06, $00, $00, $00    // blue, then black for a quarter of the cycle
-
-dark_ramp:                      // the paper half of every cell: mostly
-    .byte $00, $00, $00, $06    // black, with just enough dark blue and
-    .byte $06, $0b, $0b, $06    // dark grey moving through it to keep the
-    .byte $06, $00, $00, $00    // field from being flat
-    .byte $00, $00, $00, $00
+col_buf:    .fill 40, 0         // this frame's color for each column
 
 //------------------------------------------------------------------
 // fade_tab[level * 16 + color] - color dimmed to level/7 of its
 // brightness, staying inside its own family so a fade passes through
-// real shades of the same hue. fade_hi is the same table pre-shifted
-// into the high nibble, for build_tabs' ink.
+// real shades of the same hue.
 //
 // Luminance is the usual 0-32 scale (Pepto's measurements, rounded);
 // each family lists its colors dark to bright, and a level picks the
-// family member nearest the target luminance without going brighter
-// than the color itself.
+// family member nearest the target luminance, the darker on a tie.
 //------------------------------------------------------------------
 .var FADE_LUMA = List().add(0, 32, 10, 20, 12, 16, 8, 24, 12, 8, 16, 10, 15, 24, 15, 20)
 .var FADE_FAM = List()
@@ -877,8 +865,4 @@ dark_ramp:                      // the paper half of every cell: mostly
 fade_tab:
 .for (var lvl = 0; lvl < 8; lvl++) {
     .for (var c = 0; c < 16; c++) { .byte fade_color(c, lvl) }
-}
-fade_hi:
-.for (var lvl = 0; lvl < 8; lvl++) {
-    .for (var c = 0; c < 16; c++) { .byte fade_color(c, lvl) << 4 }
 }
