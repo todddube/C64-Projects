@@ -1,6 +1,5 @@
 //==================================================================
-// INTRO_RASTER - the raster bar overture, and the bars that frame the
-// closing wipe
+// INTRO_RASTER - the raster bar overture
 //
 // Imported by main.asm into VIC bank 1's spare RAM. Not buildable on its
 // own: it uses main.asm's register labels, row_offset_lo/hi, check_exit
@@ -10,9 +9,8 @@
 // ----------
 // The demo now opens BEFORE the bitmap intro, in plain text mode, with
 // eight raster bars flying over a black screen while the handle and five
-// labels arrive one at a time. It closes the same way: the last phase of
-// the bitmap intro gets a slot of border bars imploding in step with the
-// spiral wipe, so the hand-off into the demo is framed rather than bare.
+// labels arrive one at a time. Then it hands over to the bitmap intro
+// (intro.asm), which ends on a plain fade to black.
 //
 // HOW A BAR IS DRAWN
 // ------------------
@@ -85,7 +83,7 @@
 // however far gsh squeezes it. A plain `lsr` would drag every bar towards
 // the top of the screen as the amplitude came down.
 //
-// THE FIVE MOVEMENT MODES
+// THE MOVEMENT MODES
 // -----------------------
 // A mode is just 40 bytes - off, spd, sh, ctr and a palette pick for each
 // of the eight bars - copied into the working arrays by rb_set_mode. The
@@ -103,7 +101,6 @@
 //   4 IMPLODE  one speed, phases a quarter apart, and gsh driven from 0
 //              to 7 (or 7 back to 0): the bars either converge into one
 //              thick bar in the middle of the screen or erupt out of it
-//   5 BAND     four bars in a fifty-line slot, for the closing wipe
 //
 // rb_script runs eight steps of them, each step switching mode and
 // bringing up one more label, so the overture builds rather than loops.
@@ -134,9 +131,6 @@
 .label RB_STRIPS    = 4         // colour strips to pick from
 .label RB_LABELS    = 7
 .label RB_STEPS     = 9         // steps in rb_script
-.label RB_BAND_TOP  = 205       // the closing wipe's border slot, in the TAIL
-.label RB_BAND_BOT  = 248       // of the frame - the only place a paint_sweep
-.label RB_BAND_H    = RB_BAND_BOT - RB_BAND_TOP + 1   // frame has room for it
 
 * = $6b00 "Intro Raster"
 
@@ -688,83 +682,6 @@ rdf_done:
     rts
 
 //==================================================================
-// THE CLOSING WIPE'S BORDER BARS
-//
-// Phase W of the bitmap intro spends 150-162 lines a frame on
-// build_wipe_tabs and paint_sweep, and the music has already taken it to
-// around line 20 before either of them starts, so there is nowhere near a
-// full frame of raster bars left in it - and nowhere in the TOP half of
-// the frame to put a slot either, because the paint would then finish
-// past line 250 and intro_sync would lose a whole frame every iteration.
-//
-// So the slot goes in the TAIL: the buffer is rebuilt before the paint
-// (~35 lines) and displayed after it, from 205 to 248. A light frame
-// leaves the paint finishing near 180 and the bars get the whole slot; a
-// heavy one starts them lower and the band is simply shorter. Either way
-// it stops at 248 and the next intro_sync still catches line 250.
-//
-// Only $d020 is driven. Phase W is hi-res bitmap, where $d021 is not
-// displayed at all, so the effect is the frame of the picture erupting
-// while the picture itself is eaten away - and the bars are squeezed
-// shut by rb_gsh in step with the wipe, so the border closes as the
-// screen does.
-//==================================================================
-
-//------------------------------------------------------------------
-// rb_band_build - the cheap rebuild: the slot's backdrop and the first
-// four bars only. About 1500 cycles against rb_build's 3500.
-//------------------------------------------------------------------
-rb_band_build:
-    lda #$00
-    ldx #RB_BAND_H
-rbb_fill:
-    sta RB_BUF + RB_BAND_TOP - 1, x
-    dex
-    bne rbb_fill
-    lda #$03                    // bars 0-3; 4-7 are left out of the slot
-    sta rb_bar
-    jmp rb_plot_bars
-
-//------------------------------------------------------------------
-// rb_band - drive the border from the buffer across the slot.
-//
-// rbd_late is the guard that keeps this out of the way: if the frame's
-// earlier work has already carried the raster past the slot, the whole
-// routine gives up rather than waiting into the next frame and stealing
-// paint_sweep's time.
-//------------------------------------------------------------------
-rb_band:
-    lda VIC_CONTROL1            // RASTER BIT 8 FIRST. $d012 is the low eight
-    bmi rbd_late                // bits only, so every line from 256 to 311
-                                // reads back as 0-55 and compares BELOW the
-                                // slot - i.e. "the slot is still ahead", when
-                                // in fact the frame is over and waiting for
-                                // it would cost the next one as well. Bit 7
-                                // of $d011 is the missing bit; if it is set
-                                // we are past the slot, so give up quietly.
-    ldy VIC_RASTER
-    cpy #RB_BAND_BOT
-    bcs rbd_late                // past the slot already: skip this frame
-rbd_sync:
-    ldy VIC_RASTER
-    cpy #RB_BAND_TOP
-    bcc rbd_sync
-rbd_line:
-    lda RB_BUF, y               // fetched before the wait, for the reason
-rbd_wait:                       // rs_line spells out
-    cpy VIC_RASTER
-    bne rbd_wait
-    sta VIC_BORDER
-    iny
-    cpy #RB_BAND_BOT + 1
-    bne rbd_line
-rbd_end:
-    lda #$00                    // the rest of the border is the black phase
-    sta VIC_BORDER              // W set before the wipe started
-rbd_late:
-    rts
-
-//==================================================================
 // DATA
 //==================================================================
 
@@ -855,13 +772,6 @@ rb_modes:
     .byte    1,   1,   1,   1,   1,   1,   1,   1    // sh
     .byte  150, 150, 150, 150, 150, 150, 150, 150    // ctr
     .byte   36,  24,  12,   0,  36,  24,  12,   0    // pal
-
-    //---- 5 BAND: four bars sweeping through the closing wipe's slot ----
-    .byte $00, $80, $30, $b0, $00, $80, $30, $b0     // off
-    .byte    7,   7,   7,   7,   7,   7,   7,   7    // spd
-    .byte    2,   2,   2,   2,   2,   2,   2,   2    // sh   +/-32
-    .byte  220, 220, 220, 220, 220, 220, 220, 220    // ctr
-    .byte    0,  24,  12,  36,   0,  24,  12,  36    // pal
 
 //------------------------------------------------------------------
 // The labels: six rows of 40 screen codes, already centred, so putting

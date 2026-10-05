@@ -1,30 +1,29 @@
 //==================================================================
-// INTRO_SPRITES - the flying copy of the logo, generated at assembly
-// time from the same glyph rows the bitmap is carved from
+// INTRO_SPRITES - the intro's labels (name, date, version), generated
+// at assembly time from the glyph rows in intro_text.asm
 //
 // Imported by main.asm; not buildable on its own. No run-time code.
 //
-// WHY SPRITES AT ALL
-// ------------------
-// The carved logo is pixels in a bitmap that is never rewritten, so it
-// cannot move - redrawing 8000 bytes is nowhere near a frame. Sprites are
-// the only thing on this machine that moves for free: eight X/Y register
-// pairs a frame and the VIC does the rest. So the intro carries the logo
-// twice, from one source: carved into the bitmap where it is still, and
-// packed into sprites where it flows.
+// WHY SPRITES
+// -----------
+// Sprites are the only thing on this machine that moves for free: eight
+// X/Y register pairs a frame and the VIC does the rest. The labels live
+// ONLY here - the bitmap behind them is pure picture - so there is one
+// copy of each word on screen at all times and nothing to hand over.
 //
 // THE PACKING
 // -----------
 // A sprite is 24 pixels across - exactly 3 characters at 8 pixels each -
-// and 21 rows deep. The two words are packed at different scales, to match
-// the way they are carved into the bitmap:
+// and 21 rows deep. The two labels are packed at different scales:
 //
 //   sprites 0-3  the name, 3 characters each, every font row stored TWICE
 //                so 8 font rows fill 16 sprite rows. X-expanded at run
 //                time, so a character is 16 x 16 on screen.
-//   sprites 4-7  the date, 3 characters each, rows stored ONCE and NOT
-//                X-expanded, so a character is 8 x 8 - the font's own
-//                size, and half the name in both directions.
+//   sprites 4-7  the date and, under it, the version - 12 character slots
+//                at the font's own size (8 x 8), not expanded. The date's
+//                10 characters sit in slots 1-10 on rows 0-7, "v1.0" in
+//                slots 4-7 on rows 12-19, so both are centred in the
+//                96-pixel block and move together as one label.
 //
 // flow_logo_on writes %00001111 to $d01d for exactly this reason, and
 // x_place spaces the date's sprites 24 pixels apart against the name's 48.
@@ -33,6 +32,11 @@
 // INTRO_SPR / 64 + n. They live in VIC bank 1 with the intro's bitmap;
 // the demo proper uses its own sprites out of bank 0 and never sees these.
 //==================================================================
+
+#import "intro_text.asm"
+
+.errorif DATE_CHARS > 11, "the date must fit slots 1-10 of the date sprites"
+.errorif VER_CHARS > 12, "the version must fit the date sprites' 12 slots"
 
 //------------------------------------------------------------------
 // spr_row - the byte for character `ci` of `rows` at sprite row `r`,
@@ -45,15 +49,22 @@
 }
 
 //------------------------------------------------------------------
-// spr_row_1x - the same, at the font's own size: one sprite row per font
-// row, so the glyph occupies 8 rows instead of 16.
+// date_row - the date block's byte for slot `slot` at sprite row `r`:
+// the date on rows 0-7, the version on rows 12-19, each centred in the
+// 12 slots, blank everywhere else.
 //------------------------------------------------------------------
-.function spr_row_1x(rows, n, ci, r) {
-    .if (r >= 8 || ci >= n) { .return 0 }
-    .return rows.get(ci * 8 + r)
+.const DATE_SLOT0 = floor((12 - DATE_CHARS) / 2)
+.const VER_SLOT0  = floor((12 - VER_CHARS) / 2)
+
+.function date_row(slot, r) {
+    .var d = slot - DATE_SLOT0
+    .if (r < 8 && d >= 0 && d < DATE_CHARS) { .return DATE_ROWS.get(d * 8 + r) }
+    .var v = slot - VER_SLOT0
+    .if (r >= 12 && r < 20 && v >= 0 && v < VER_CHARS) { .return VER_ROWS.get(v * 8 + r - 12) }
+    .return 0
 }
 
-* = INTRO_SPR "Intro Logo Sprites"
+* = INTRO_SPR "Intro Label Sprites"
 
 .for (var s = 0; s < 4; s++) {              // sprites 0-3: the name
     .for (var r = 0; r < 21; r++) {
@@ -64,17 +75,17 @@
     .byte 0                                  // pad 63 -> 64
 }
 
-.for (var s = 0; s < 4; s++) {              // sprites 4-7: the date, 1:1
+.for (var s = 0; s < 4; s++) {              // sprites 4-7: date + version
     .for (var r = 0; r < 21; r++) {
         .for (var c = 0; c < 3; c++) {
-            .byte spr_row_1x(DATE_ROWS, DATE_CHARS, s * 3 + c, r)
+            .byte date_row(s * 3 + c, r)
         }
     }
     .byte 0
 }
 
 //------------------------------------------------------------------
-// The sine table the flow is built from: one full period over 256
+// The sine table the ripple is read from: one full period over 256
 // entries, 0-255, so indexing it with a byte counter wraps for free and
 // no clamping is ever needed. flow_sprites shifts it down to whatever
 // amplitude it wants.

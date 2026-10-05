@@ -1,5 +1,5 @@
 //==================================================================
-// INTRO_GFX - the intro's hi-res bitmap and its four cell fields,
+// INTRO_GFX - the intro's hi-res bitmap and its cell field,
 // all generated at assembly time
 //
 // Imported by main.asm; not buildable on its own. Pure data generation.
@@ -57,33 +57,15 @@
 //          test rather than sqrt/atan2 - there is no angle anywhere in
 //          this file any more
 //
-// The logo sits in the lower third exactly as before: logo_cell forces
-// those cells to text_px and NOTHING ELSE, so the sun and the grid are
-// simply masked out under the letters regardless of where they overlap -
-// the picture underneath never has to know the logo is there.
+// THERE IS NO LOGO IN THE BITMAP
+// ------------------------------
+// The title, date and version used to be carved in here as well as
+// packed into sprites, and the intro handed the logo from one copy to
+// the other. The carving cost a dark, letter-shaped plate cut out of the
+// picture while the sprites flew, and a visible handoff each way. Now
+// the labels are sprites only (intro_sprites.asm) and every cell of this
+// bitmap is picture.
 //==================================================================
-
-#import "intro_text.asm"
-
-//------------------------------------------------------------------
-// near_text draws the knockout outline one pixel to each side of a
-// glyph. That only works while every lit pixel is inside bits 6..1 of its
-// font row: a pixel in bit 7 or bit 0 sits hard against the character
-// cell edge, and its outline would fall in the neighbouring character
-// where the next glyph may already have claimed it. Every glyph in the
-// C64 font used here satisfies that, but nothing enforces it, so the
-// build checks rather than trusts - a future glyph that breaks it would
-// otherwise just quietly lose one side of its outline.
-//------------------------------------------------------------------
-.for (var i = 0; i < NAME_ROWS.size(); i++) {
-    .errorif (NAME_ROWS.get(i) & $81) != 0, "Name glyph uses bit 7 or bit 0 - near_text cannot outline it"
-}
-.for (var i = 0; i < DATE_ROWS.size(); i++) {
-    .errorif (DATE_ROWS.get(i) & $81) != 0, "Date glyph uses bit 7 or bit 0 - near_text cannot outline it"
-}
-.for (var i = 0; i < VER_ROWS.size(); i++) {
-    .errorif (VER_ROWS.get(i) & $81) != 0, "Version glyph uses bit 7 or bit 0 - near_text cannot outline it"
-}
 
 .const CENTER_PX = 160.0        // 320 pixels across
 .const ASPECT    = 1.2          // a hi-res pixel is ~1.2x taller than wide
@@ -93,7 +75,7 @@
 .const HORIZON_Y   = 92.0       // sky above this line, floor grid below it
 .const BAND_H      = 15.0       // sunset stripe height in the sky, pixels.
                                  // Wide and calm on purpose: this is the
-                                 // backdrop the flying logo sprites travel
+                                 // backdrop the label sprites travel
                                  // over (see intro.asm flow_sprites), and
                                  // a thin, busy stripe pattern there was
                                  // fighting the sprite text for attention
@@ -112,29 +94,6 @@
 .const SUN_STRIPE_K   = 0.60      // how fast the cut stripes widen going
                                    // down the disc (spacing grows with
                                    // sqrt of distance from the top)
-
-// The logo, in the lower third, clear of the grid's busiest tiles. Each
-// string carries its own scale in bitmap pixels per font pixel, so the
-// name reads as the title and the date and version sit under it as small
-// print:
-//
-//   name    scale 2  -> 16 x 16 a character
-//   date    scale 1  ->  8 x  8 a character
-//   v1.0    scale 1  ->  8 x  8 a character
-//
-// The sprite copy has to agree with this: intro_sprites.asm doubles the
-// name's rows and leaves the date's single, and flow_logo_on X-expands
-// only the name's four sprites.
-.const NAME_SCALE = 2
-.const DATE_SCALE = 1
-.const VER_SCALE  = 1
-
-.const NAME_X = (320 - NAME_CHARS * 8 * NAME_SCALE) / 2     // = 64
-.const NAME_Y = 136
-.const DATE_X = (320 - DATE_CHARS * 8 * DATE_SCALE) / 2     // = 120
-.const DATE_Y = 160
-.const VER_X  = (320 - VER_CHARS  * 8 * VER_SCALE)  / 2     // = 144
-.const VER_Y  = 172
 
 //------------------------------------------------------------------
 // Hoisted sine tables, so the sky and floor warps cost one table lookup
@@ -177,55 +136,13 @@
 //
 // It is deterministic, not random - the same n always hashes to the same
 // value, on every build. That is exactly what is wanted here: the point
-// is to make each stripe's edge or each wipe cell's timing look
+// is to make each stripe's edge look
 // irregular to the EYE, not to differ from run to run (KickAssembler has
 // no runtime randomness to offer anyway, this all happens at build time).
 //------------------------------------------------------------------
 .function hash01(n) {
     .var s = sin(n * 12.9898 + 78.233) * 43758.5453
     .return s - floor(s)
-}
-
-//------------------------------------------------------------------
-// glyph_px / near_text / text_px - the logo, in hi-res coordinates.
-// `sc` is bitmap pixels per font pixel, so a character is 8*sc wide and
-// 8*sc tall and sc = 1 is the font's own size.
-//------------------------------------------------------------------
-.function glyph_px(px, py, rows, x, y, n, sc) {
-    .if (py < y || py >= y + 8 * sc) { .return 0 }
-    .if (px < x || px >= x + n * 8 * sc) { .return 0 }
-    .var ci  = floor((px - x) / (8 * sc))
-    .var bit = floor(mod(px - x, 8 * sc) / sc)
-    .var row = floor((py - y) / sc)
-    .if ((rows.get(ci * 8 + row) & (128 >> bit)) != 0) { .return 1 }
-    .return 0
-}
-
-.function text_px(px, py) {
-    .if (glyph_px(px, py, NAME_ROWS, NAME_X, NAME_Y, NAME_CHARS, NAME_SCALE) != 0) { .return 1 }
-    .if (glyph_px(px, py, DATE_ROWS, DATE_X, DATE_Y, DATE_CHARS, DATE_SCALE) != 0) { .return 1 }
-    .if (glyph_px(px, py, VER_ROWS,  VER_X,  VER_Y,  VER_CHARS,  VER_SCALE)  != 0) { .return 1 }
-    .return 0
-}
-
-//------------------------------------------------------------------
-// logo_cell - does character cell (ccol, crow) contain any logo pixel?
-//
-// Cells that do are handled completely differently from the rest: the
-// backdrop is cleared out of them entirely and their color pair comes
-// from the logo's own ramp (see the +16 in cell_glint below). That is
-// what gives the letters an independent color in a mode with no color
-// RAM - the separation is per cell rather than per bit pair. The letters
-// end up sitting on a chunky, letter-shaped plate cut out of the picture,
-// whatever that picture is doing underneath.
-//------------------------------------------------------------------
-.function logo_cell(ccol, crow) {
-    .for (var k = 0; k < 8; k++) {
-        .for (var q = 0; q < 8; q++) {
-            .if (text_px(ccol * 8 + q, crow * 8 + k) != 0) { .return 1 }
-        }
-    }
-    .return 0
 }
 
 //------------------------------------------------------------------
@@ -338,22 +255,11 @@
 
 .for (var crow = 0; crow < 25; crow++) {
     .for (var ccol = 0; ccol < 40; ccol++) {
-        .var is_logo = logo_cell(ccol, crow)
         .for (var k = 0; k < 8; k++) {
             .var py = crow * 8 + k
             .var bits = 0
             .for (var q = 0; q < 8; q++) {
-                .var px = ccol * 8 + q
-                .var v = 0
-                .if (is_logo != 0) {
-                    // a logo cell holds the letter and nothing else, so
-                    // the sun and grid cannot bleed through and pick up
-                    // the logo's colors
-                    .eval v = text_px(px, py)
-                } else {
-                    .eval v = pattern_px(px, py)
-                }
-                .eval bits = bits | (v << (7 - q))
+                .eval bits = bits | (pattern_px(ccol * 8 + q, py) << (7 - q))
             }
             .byte bits
         }
@@ -361,142 +267,44 @@
 }
 
 //==================================================================
-// THE CELL FIELDS - the animation layer
+// THE CELL FIELD - the animation layer
 //
-// One byte per screen cell (40 x 25 = 1000). The low 4 bits are a
-// position in a color ramp, and BIT 4 SAYS WHICH RAMP:
+// One byte per screen cell (40 x 25 = 1000), each a position 0-15 in
+// the backdrop's color ramp. build_tabs turns pal_phase into a 16-entry
+// table every frame and paint_sweep looks every cell up in it, so a
+// color sits wherever field + pal_phase lands on it - and as pal_phase
+// climbs, every color slides toward LOWER field values.
 //
-//     $00-$0f   a backdrop cell, stepping with pal_phase
-//     $10-$1f   a logo cell,     stepping with text_phase
+// There is one field, and it is built so that slide reads as travel:
 //
-// so build_tabs fills a 32-entry table and one `lda vmtab,y` resolves
-// both layers at once. The logo's flag is baked into every field, which
-// is why the letters keep their own color and their own glint in a mode
-// that has no color RAM to give them.
+//   sky    field RISES going down the screen, 16 steps every SKY_ROWS
+//          rows, so the bands drift UP, away from the horizon
+//   floor  field FALLS going down, as -sqrt(depth below the horizon):
+//          the steps crowd together near the horizon and spread out
+//          toward the bottom, the same recession as the checkerboard,
+//          so the bands roll DOWN the floor toward the viewer
 //
-// Four fields, switched per phase, so the intro changes structure and
-// not just speed. They all read the SAME fixed bitmap - what changes is
-// which of ROWS, COLUMNS or a DIAGONAL the color motion sweeps along:
+// Both move away from the horizon at once: the sun sits still on the
+// line and the world streams out from behind it. The old intro switched
+// between row, column, diagonal and plasma fields; one field that never
+// changes shape is what keeps the picture calm under the labels.
 //
-//   A  row bands      - wide horizontal bands drift down through the sky
-//                        and the floor together, like the sunset itself
-//                        cycling colour
-//   B  column bands    - vertical bands sweep left-right across the
-//                        grid, like a searchlight scanning the floor
-//   C  diagonal bands  - tight, fast diagonal bands: the closest thing
-//                        left to "busy", now a glitchy scanline shimmer
-//                        instead of a tightening spiral
-//   D  plasma          - unchanged: a non-linear swimming field that
-//                        never lined up with the old polar math and
-//                        does not need to change now
-//
-// Each is page aligned so paint_sweep can patch its page byte directly.
-// Cells are sampled at their centre, in the same pixel space and with
-// the same aspect correction as the bitmap.
+// Page aligned so paint_sweep can patch its page byte directly.
 //==================================================================
+.const SKY_ROWS   = 9.0         // rows for one lap of the ramp in the sky
+.const FIELD_K    = 3.2         // floor steps per sqrt(pixel) of depth
 
-.function cell_glint(ccol, crow) {
-    .return mod(floor(ccol * 0.6 + crow * 0.6) + 128, 16)
-}
-
-//------------------------------------------------------------------
-// cell_row_wave / cell_col_wave / cell_diag_wave - a cell's fixed offset
-// into the color ramp, as a straight line function of its row, column or
-// both. `period` is how many rows/columns one full 16-step lap of the
-// ramp takes: SMALL periods make tight, busy bands, LARGE ones make slow
-// wide ones. There is no distance or angle term anywhere in these - a
-// row-wave cell three rows down behaves identically whether it is in the
-// dead centre of the screen or hard against the left edge, which is
-// exactly the point: nothing here can ever read as radial.
-//------------------------------------------------------------------
-.function cell_row_wave(crow, period) {
-    .return mod(floor(crow / period * 16) + 4096, 16)
-}
-.function cell_col_wave(ccol, period) {
-    .return mod(floor(ccol / period * 16) + 4096, 16)
-}
-.function cell_diag_wave(ccol, crow, kx, ky) {
-    .return mod(floor(ccol * kx + crow * ky) + 4096, 16)
-}
-
-//------------------------------------------------------------------
-// cell_plasma - a swimming field, unchanged from the spiral version: the
-// color moves across the picture rather than along any straight line
-// through it, which is what stops the four fields ever looking the same.
-//
-// The diagonal terms matter: with only sin(ccol) and sin(crow) the field
-// is separable and lays down obvious horizontal and vertical stripes a
-// cell wide. Adding ccol+crow and ccol-crow breaks that up and gives the
-// rounded, isotropic blobs a plasma is supposed to have.
-//------------------------------------------------------------------
-.function cell_plasma(ccol, crow) {
-    .var v = sin(ccol * 0.42) + sin(crow * 0.31)
-    .eval v = v + sin((ccol + crow) * 0.27) + sin((ccol - crow) * 0.19)
-    .return mod(floor(v * 2.0) + 128, 16)
-}
-
-//------------------------------------------------------------------
-// emit_field - one 1000-byte field. `kind` picks the motion; logo cells
-// ignore it and take the glint instead, flagged with bit 4.
-//------------------------------------------------------------------
-.macro EmitField(kind) {
-    .for (var crow = 0; crow < 25; crow++) {
-        .for (var ccol = 0; ccol < 40; ccol++) {
-            .if (logo_cell(ccol, crow) != 0) {
-                .byte $10 + cell_glint(ccol, crow)
-            } else .if (kind == 0) {
-                .byte cell_row_wave(crow, 9.0)
-            } else .if (kind == 1) {
-                .byte cell_col_wave(ccol, 11.0)
-            } else .if (kind == 2) {
-                .byte cell_diag_wave(ccol, crow, 1.4, 2.0)
-            } else {
-                .byte cell_plasma(ccol, crow)
-            }
-        }
+.function cell_field(ccol, crow) {
+    .var cy = crow * 8 + 4                      // the cell's centre line
+    .if (cy < HORIZON_Y) {
+        .return mod(floor(crow / SKY_ROWS * 16) + 4096, 16)
     }
+    .return mod(floor(-sqrt(cy - HORIZON_Y) * FIELD_K) + 4096, 16)
 }
 
 * = INTRO_WAVE_A "Intro Wave A"
-EmitField(0)
-
-* = INTRO_WAVE_B "Intro Wave B"
-EmitField(1)
-
-* = INTRO_WAVE_C "Intro Wave C"
-EmitField(2)
-
-* = INTRO_WAVE_D "Intro Wave D"
-EmitField(3)
-
-//==================================================================
-// THE WIPE FIELD - the handoff to the demo
-//
-// A fifth field, and the only one that is MONOTONIC: every other field
-// wraps with mod 16 so its values repeat across the screen, which is
-// what makes them cycle. A wipe must not repeat - each cell has to have
-// exactly one moment at which it goes out - so this one is a clamped
-// ramp instead of a modulo.
-//
-// The value is the cell's turn in the queue: 0 goes first, 15 last. It
-// used to spiral in from the edges; now it is a plain curtain sweeping
-// top to bottom (base), with a per-column hash JITTER thrown in so the
-// curtain does not fall as one clean line - columns beat each other by a
-// cell or two, which reads as a glitchy, staticky collapse rather than a
-// wipe. Because it is just another field, phase W needs no new code in
-// the sweep: build_wipe_tabs fills vmtab with black for every entry that
-// has already come up and white for the rest, and paint_sweep does the
-// rest.
-//==================================================================
-
-* = INTRO_WIPE "Intro Wipe Field"
 .for (var crow = 0; crow < 25; crow++) {
     .for (var ccol = 0; ccol < 40; ccol++) {
-        .var base = crow / 24.0 * 15.0
-        .var jitter = (hash01(ccol * 7 + crow * 31 + 1) - 0.5) * 4.0
-        .var t = floor(base + jitter)
-        .if (t < 0)  { .eval t = 0 }
-        .if (t > 15) { .eval t = 15 }
-        .byte t
+        .byte cell_field(ccol, crow)
     }
 }
