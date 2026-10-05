@@ -1,7 +1,8 @@
 # spritemove
 
-A Commodore 64 demo in 6502 assembly: a raster bar overture, a hi-res bitmap
-intro with a carved and flying logo, then 4 to 16 shaded balls (8 to start)
+A Commodore 64 demo in 6502 assembly: a raster bar overture, a title card on
+black followed by vertical raster bars with the title floating over them, then
+4 to 16 shaded balls (8 to start)
 drifting around a starfield with collision sparks and SID ping effects, using
 the full height of the screen — the vertical border is held open, so the balls
 fly into it. Past eight balls the VIC's eight sprites are multiplexed by a
@@ -24,7 +25,7 @@ java -jar /Applications/KickAssembler/KickAss.jar main.asm -odir bin
 /Applications/vice-arm64-gtk3/bin/x64sc -ntsc -autostart bin/main.prg
 ```
 
-Output is `bin/main.prg`, about 32 KB (`$0801-$83e7`). The repo's `/build` and
+Output is `bin/main.prg`, about 27 KB (`$0801-$714f`). The repo's `/build` and
 `/run` slash commands do both steps.
 
 To *see* a particular moment without watching in real time, let VICE run a fixed
@@ -37,9 +38,9 @@ number of cycles in warp and screenshot on the way out:
 
 Autostart costs roughly 3.2M cycles before the intro's first frame (measured;
 it grows with the `.prg`). NTSC runs 1022727 cycles a second (a frame is 17095),
-PAL 985248 (a frame is 19656). The overture and the bitmap intro are timed in
+PAL 985248 (a frame is 19656). The overture and the intro are timed in
 **tune ticks**, not frames, so they take the same wall-clock time on both: the
-balls appear about 26 seconds in.
+balls appear about 27 seconds in.
 
 ### NTSC and PAL
 
@@ -110,7 +111,7 @@ on the same trashed zero page. Masking CIA 2 at `$dd0d` alone cannot stop it.
 
 ### The overture (~10 seconds)
 
-Before the bitmap intro there is a raster bar sequence in plain text mode:
+The demo opens with a raster bar sequence in plain text mode:
 eight colour bars flying over a black screen while the handle, five labels
 and a closing music credit fade up one at a time; the labels go dark with the
 closing flash rather than snapping off after it. See `intro_raster.asm`.
@@ -159,8 +160,8 @@ it reads as smaller and quieter without an actual second font: there is no
 sub-8px text in C64 character mode without a full custom charset (`$d018`
 selects one charset for the whole screen, so every glyph the other labels use
 would have to be duplicated into it just for one credit line). It ends on a
-white strobe that the labels vanish into, and hands over to the bitmap intro
-on a black screen.
+white strobe that the labels vanish into, and hands over to the intro on a
+black screen.
 
 **On raster stability.** The wait loop is `cpy $d012 / bne`, seven cycles, and a
 PAL line is 63 — exactly nine iterations, so it detects every line at the same
@@ -177,147 +178,90 @@ per-badline padding, at which point the loop has no slack and the first frame
 whose off-screen work runs long desynchronises it for good. The polling loop is
 self-healing by construction, which is worth more here.
 
-### The intro (~17 seconds)
+### The intro (~15 seconds)
 
-A hi-res bitmap **retro sunset grid** — sky bands, a perspective floor and a striped badge sun on the horizon between them — generated at
-assembly time and never changed a single pixel at run time; all the motion is
-colour. This used to be a polar spiral tunnel; see below for why it isn't now.
-
-Hi-res gives 320 pixels across but only **two** colours per 8x8 cell, both from
-the video matrix byte: high nibble ink, low nibble paper. Colour RAM and `$d021`
-are not used by the mode at all, so every cell is a free two-colour pair.
-Shading comes from **ordered dithering** — the pattern is computed as a
-continuous intensity and thresholded against a 4x4 Bayer matrix, so at 320
-pixels the dots read as a gradient between the cell's two colours.
-
-**Rows and columns, not distance and angle.** The old picture built every pixel
-from its distance and angle to the screen centre — a spiral tunnel, by
-construction. The new one has no `sqrt`/`atan2` in it at all:
-
-- **sky** (above the horizon) — flat horizontal sunset bands, their edges
-  warped a few pixels by two hoisted sine tables so they breathe instead of
-  ruling dead straight, plus a per-band pseudo-random hash jitter that nudges
-  each stripe's edge a little early or late — real scanlines are never
-  perfectly even, and that unevenness is baked into the picture on purpose
-- **floor** (below the horizon) — meant as a perspective checkerboard: screen
-  X is divided by depth before it is tiled, so the squares narrow toward the
-  horizon the way a real floor recedes (as tuned, the tiles are so wide that
-  below the fog the floor reads as two halves - see the review notes), and a fog term dithers the near tiles
-  crisp and the far ones toward grey static so the horizon disappears into
-  haze rather than snapping off
-- **sun** — a plain circle sat on the horizon, cut by horizontal stripes that
-  widen toward the bottom (spacing grows with `sqrt` of distance from the top
-  of the disc). The only round thing on screen, and it doesn't rotate.
-
-The logo shares that one bitmap without ever interfering with the backdrop,
-because the separation is in the **cell fields** rather than in the picture.
-Each field byte carries a ramp position in its low nibble and a flag in **bit
-4** saying which ramp: `$00-$0f` is a backdrop cell stepping with `pal_phase`,
-`$10-$1f` is a logo cell stepping with `text_phase`. `build_tabs` fills a
-32-entry table, and one `lda vmtab,y` resolves both layers at once — which is
-how the letters keep their own colour and their own glint in a mode with only
-two colours per cell to spend.
-
-Because it is all per-*cell*, animating the whole screen is a table lookup per
-cell rather than a redraw. `paint_sweep` recolours two 256-cell pages per
-frame at 31 cycles a cell — about 16400 cycles — and rotates through the four
-pages, so the screen refreshes top to bottom every two frames while the ramps
-keep turning. The four fields no longer turn a spiral; they sweep the same
-fixed picture along rows, columns or a diagonal:
-
-| Field | What it looks like |
-|---|---|
-| A row bands | Wide horizontal bands drift down through the sky and floor together, like the sunset itself cycling colour |
-| B column bands | Vertical bands sweep left-right across the grid, like a searchlight scanning the floor |
-| C diagonal bands | Tight, fast diagonal bands — a glitchy scanline shimmer |
-| D plasma | Unchanged: a non-linear swimming field, organic rather than geometric |
-
-The sequence:
+After the overture the title comes up on its own, then vertical raster bars
+sweep behind it while it floats. Everything stays in text mode on the demo's
+own screen (VIC bank 0); there is no bitmap. See `intro.asm`.
 
 Lengths are in tune ticks (= PAL frames; on NTSC a tick is 6/5 of a frame).
 
 | Phase | Ticks | What happens |
 |---|---|---|
-| Z | 60 (~1.2s) | Nothing — a black screen while the tune starts. Paints nothing at all; the screen stays black because nothing rewrites it |
-| T | 90 (~1.8s) | The title card: the carving lights up while the backdrop is still black, so the name, date and `v1.0` arrive out of nothing — exactly where the flying copy will later land |
-| A | 112 (~2.2s) | Wide horizontal bands ripple up *underneath* the lit title, the second band colour joining half way — the sunset assembles around the name rather than replacing it |
-| B | 176 (~3.5s) | Vertical column bands sweep the floor grid and accelerate; the logo flies in |
-| F | 224 (~4.5s) | The plasma field — the picture swims instead of scanning; the logo keeps flowing |
-| C | 112 (~2.2s) | Sprites switch off, the carved logo ignites to chrome, and the tight diagonal field winds up into a fast shimmer |
-| D | 24 (~0.5s) | Last burst, then the whole field ramps to white |
-| W | 32 (~0.6s) | The white sheet drops as a curtain, top to bottom with a per-column glitch stagger, with raster bars imploding in the side borders alongside it, then the handoff to the balls |
+| Z | 30 (~0.6s) | Black — a breath after the overture |
+| T | 180 (~3.6s) | The title card: name, date and `v1.0` fade up out of black and hold, with nothing behind them |
+| F | 2 x 200 (~8s) | The vertical bars fade in and sweep sideways; the labels lift off and float to random spots |
+| R | 160 (~3.2s) | The labels glide back to their home and settle exactly; the bars keep sweeping |
+| O | 48 (~1s) | Bars and labels fade to black together, and the balls take over from a black screen |
 
-Phase W is the one bitmap phase with room for raster bars, and only just.
-`build_wipe_tabs` and `paint_sweep` take 150-162 raster lines and the music has
-already carried the frame to around line 20 before either starts, so a slot
-anywhere in the **top** half leaves the paint finishing past line 250 —
-`intro_sync` then misses its sync and every iteration costs two frames, which
-is one music tick per two frames and an audible drag on the tune.
+**The labels are sprites.** Name, date and version are built at assembly time
+from glyph rows lifted from the C64 character ROM (`intro_text.asm`) and packed
+into the eight sprites by `intro_sprites.asm`, at `$0c00` in bank 0 (VIC blocks
+`$30-$37`):
 
-So the slot goes in the **tail**: the buffer is rebuilt before the paint (~35
-lines) and displayed after it, from 205 to 248. A light frame leaves the paint
-finishing near 180 and the bars get the whole slot; a heavy one starts them
-lower and the band is simply shorter. Either way it stops at 248 and the next
-`intro_sync` still catches line 250 — measured at 33 PAL frames for the 32
-iterations, against 44 when the slot sat at the top.
+- sprites 0-3 — the name, 3 characters each, font rows stored twice and
+  X-expanded, so a character is 16x16;
+- sprites 4-7 — the date on rows 0-7 and `v1.0` on rows 12-19 of the same
+  sprites, both centred in the 12 character slots, 8x8 a character. The date
+  and version move together as one label.
 
-Only `$d020` is driven — phase W is hi-res bitmap, where `$d021` is not
-displayed at all — so what you get is the frame of the picture erupting while
-the picture itself is eaten away, with `rb_gsh` squeezing the bars shut in step
-with the wipe.
+None of the font reaches the `.prg`; by run time the letters are already pixels.
 
-`rb_band`'s "already past the slot" guard has to read the raster's **bit 8**
-from `$d011` before it looks at `$d012`. `$d012` is the low eight bits only, so
-every line from 256 to 311 reads back as 0-55 and compares *below* the slot —
-"still ahead" — when in fact the frame is over and waiting would cost the next
-one too.
+**Smooth random movement.** The two labels are two bodies, each a **damped
+spring** on X and Y in 8.8 fixed point (`spring`):
 
-The logo appears twice and never at the same time. It is lit in the carving for
-T and A — the title card, and the sunset rising around it — then phase B puts the
-carving out at the same moment the sprite copy lifts off it, so the title reads as
-taking flight. Through B and F the carving is a dark, unreadable plate — present
-and shaped but not legible — while the sprites fly. Its paper and ink both track
-the backdrop's own dark tones (`build_tabs`' `bt_paper`), so the plate blends into
-the picture as one more dark patch instead of standing out as a flat black
-rectangle or, worse, as a legible ghost copy of the text sitting behind the
-sprite. When the carving switches off at the start of C it lights again, so the
-logo reads as *landing back* into the bitmap it started from.
+    accel = (target - pos) / 512      vel = vel + accel - vel / 16      pos = pos + vel
 
-The name is carved and packed at scale 2 (16x16 a character); the date and the
-`v1.0` label at scale 1 (8x8), so they read as small print under the title. The
-carve and the sprite packing have to agree on that or the logo would not land on
-itself — `intro_sprites.asm` doubles the name's font rows and leaves the date's
-single, `flow_logo_on` X-expands only the name's four sprites, and `x_place`
-spaces the date's 24 pixels apart against the name's 48. `v1.0` is carved only:
-all eight sprites are spoken for, and a version label has no business flying.
+That is a damping ratio of about 0.7: a label accelerates, glides, and eases
+into its target with a few percent of overshoot, and a target that changes
+mid-glide just bends the path — it never jumps. `wander` re-picks each body's
+target at random every 110-173 frames, from an 8-bit LFSR seeded from the CIA
+timer and the raster, so every run floats differently. The two bodies run on
+their own timers so they never move in step. Each has its own box — the name in
+the top half, the date in the bottom — so they never cross. A small ripple runs
+along each word on top, eased in and out so it never snaps.
 
-**Why two copies.** A bitmap cannot move; redrawing 8000 bytes is nowhere near a
-frame. Sprites are the only thing on this machine that moves for free. So the
-logo is built once from glyph rows lifted from the C64 character ROM and emitted
-twice — carved into the bitmap by `intro_gfx.asm`, packed into sprites by
-`intro_sprites.asm` (3 characters per sprite; the name's font rows are stored
-twice and X-expanded to 16x16, the date's are 1:1, 8x8). None of the font reaches the `.prg`; by run time the
-letters are already pixels.
+On the way home (`R`) the springs aim at the home position and `homing` snaps
+an axis onto it once it is within -2..+1 px and nearly still. The window is
+asymmetric on purpose: the pull rounds toward minus infinity, so -2 and -1 are
+rest points too, and a -1..+1 window could leave a label parked 2 px off.
 
-The flying copy **opens on the carved position exactly**. Every phase starts at
-0, and `x_phase`/`y_phase` are picked so that phase 0 of each sine is the spot
-the logo is carved into the bitmap — the name at sprite (88, 187), the date at
-(144, 211). The carving goes dark in the same routine that lights the sprites, so
-the title does not move by a pixel as one copy hands over to the other; it stops
-being bitmap and starts being sprites. That is what `FLOW_Y_BASE` is for: the
-original path ran Y 50..192 and could not reach the carved date at all, so the
-logo used to teleport up the screen at the handoff. Bitmap `(px, py)` shows at
-sprite `(px + 24, py + 51)` if the carve ever moves.
+**Vertical bars in text mode.** The overture's bars are one colour per raster
+*line*; these are one colour per *column*, and a column is something text mode
+already has. The screen is filled with the solid block (screen code `$a0`), so
+every cell shows nothing but its colour RAM nibble. `bars_build` draws five
+shaded, sine-driven bars (7 columns each, dark edge to mid-bright core) into a
+40-byte `col_buf`, and the copy routines spread it down all 25 rows. A bar's
+left column is a signed byte, so one unsigned `cpx #40` clips both edges.
 
-The flight path comes from one 256-entry sine table read with a byte index, so
-nothing ever needs clamping: a horizontal **drift** (5.1s) that all four sprites
-of a word share so it stays a word, a **bob** (2.6s) that moves it as one body,
-and a small per-sprite **ripple** (1s) a quarter period apart along the word so
-it undulates. The ripple is the one term that cannot start on the path — no
-phase puts all four sprites at zero at once — so `ripple_sh` fades it in over 24
-frames rather than letting it snap on at up to 15 pixels. Three periods sharing no common factor, so the path never repeats
-in the 8 seconds it is up. The date carries a half-period offset, so the two
-words swing against each other and cross.
+The bar colours stop at mid brightness (light blue, light red, green, purple,
+orange) and the labels use the four brightest colours (white, yellow, cyan,
+light green), because a hi-res sprite has one colour and no outline:
+brightness is all that keeps the letters readable over the bars.
+
+**Racing the beam.** Colour RAM is at a fixed address, so it cannot be double
+buffered. Instead the frame is ordered so each write lands before the beam
+draws it:
+
+| Step | Needed by | Measured, NTSC |
+|---|---|---|
+| sync at line 250, sprite registers (below every label) | — | — |
+| `copy_rows0` — rows 0-5 | line 51 | done by 34 |
+| `copy_rows6` — rows 6-12 | line 99 | done by 63 |
+| `music_tick`, `check_exit` | — | — |
+| `copy_rows13` — rows 13-24 | line 155 | done by 145 |
+| `wander`, fades, `bars_build` (next frame) | line 250 | done by 201 |
+
+Each copy is column by column, so its *top* row is the last one finished.
+Rows 0-12 as one block measured done at line 56 on NTSC — five lines after row 0
+starts drawing — which is why the top is split in two. No frame runs late on
+either standard; PAL has 49 more lines of vertical blank and more slack
+everywhere.
+
+**Fades, not cuts.** `bk_lvl` (bars) and `spr_lvl` (labels) step 0..7 toward a
+goal every `fade_rate` frames, and every colour goes through `fade_tab`, which
+maps (level, colour) to a darker shade of the *same* hue by luminance — orange
+fades through brown to black rather than snapping. A phase only sets the goals.
 
 The music is *Nightshift* by Ari Yliaho (Agemixer), imported from PSID and
 driven from a fixed raster line by `music_tick`: every frame on PAL, five frames
@@ -392,9 +336,9 @@ Ball *state* doesn't fit in zero page at 16 balls (24 tables x 16 is 384
 bytes, more than all of `$02-$FF`), so it lives in ordinary RAM at `$8400`
 (`BALL_STATE`). Indexed table access costs the same off zero page (`lda
 table,x` is 4 cycles either way, and no table crosses a page). It must **not**
-share memory with the intro's wave fields: those are assembled-in data, and
-`R` replays the intro from them — an earlier version put the ball tables on
-top of wave A and garbled the top of every intro after the first.
+share memory with anything the intro assembles in: `R` replays the intro from
+that data — an earlier version put the ball tables on top of an intro field and
+garbled the top of every intro after the first.
 
 Everything moves in **8.8 fixed point**, one byte of whole pixels and one of
 1/256ths, so a ball can travel at 0.3 px/frame and still look smooth. X needs 9
@@ -444,11 +388,10 @@ of an NTSC frame's 17095 cycles, which does not fit next to this much physics.
 |---|---|
 | `main.asm` | The demo: registers, zero page, video standard detection, main loop, multiplexer IRQ, physics, collisions, sparks, sound, status bar |
 | `sprite_gen.asm` | Assembly-time ball frames (8) |
-| `intro.asm` | The opening sequence: phases, sweep, palette and glint tables, sprite flow |
-| `intro_gfx.asm` | The retro sunset-grid bitmap with the logo carved in, plus the cell fields |
-| `intro_sprites.asm` | The flying logo sprites and the sine table |
+| `intro.asm` | The intro after the overture: phases, vertical bars and the colour RAM copy, label springs and wander, fades |
+| `intro_sprites.asm` | The label sprites (name; date + `v1.0`) and the sine table |
 | `intro_text.asm` | Glyph rows for the name, date and `v1.0`, lifted from the C64 character ROM |
-| `intro_raster.asm` | The raster bar overture and the border bars over the closing wipe |
+| `intro_raster.asm` | The raster bar overture |
 | `music.asm` | PSID import of `Nightshift.sid` |
 | `Nightshift.sid` | The intro tune |
 
@@ -469,39 +412,35 @@ $0318-$0319  NMI vector -> nmi_ignore
 $0400-$07e7  text screen: stars, status rows 23-24 (sprite pointers at $07f8)
 $0801        BASIC stub "10 SYS 8768" (8768 = $2240)
 $0900-$0a0b  raster bar line buffer: one colour per raster line
+$0c00-$0dff  intro label sprites (8 x 64 bytes, VIC blocks $30-$37)
 $1000-$1d77  Nightshift.sid - player and data at its own load address
 $2000-$21ff  8 ball frames, 64 bytes each   (VIC blocks $80-$87)
              shared by all the balls; each ball's pointer picks its
              own current frame
-$2240-$3fff  code and data tables (Main Code, ends ~$34c0)
+$2240-$3fff  code and data tables (Main Code, ends ~$3549)
 $3fff        VIC idle fetch - displayed in the opened border, zeroed at
              start-up
-$4000-$5f3f  intro bitmap      (VIC bank 1, 8000 bytes)
-$6000-$63e7  intro video matrix (VIC bank 1, filled at run time)
-$63f8-$63ff  intro sprite pointers (VIC bank 1)
-$6400-$65ff  intro logo sprites (VIC bank 1, 8 x 64 bytes)
 $6600-$66ff  intro sine table   (CPU only)
-$6700-$6ae7  intro wipe field   (CPU only)
-$6b00-$73ff  intro_raster.asm's code and data (CPU only, ends ~$71b2)
-$7400-$83e7  intro wave fields A-D (4 x 1000 at $400 spacing, CPU only)
+$6b00-$73ff  intro_raster.asm's code and data (CPU only, ends ~$714f)
 $8400-$857f  BALL_STATE: 24 per-ball tables x 16 balls
 $8600-$873f  the multiplexer's double-buffered write list
 ```
 
-`intro_raster.asm` lives up in bank 1's spare RAM because Main Code ran out of
-room for it. It is code, not graphics, and the VIC is never pointed at it. The
-wave fields, `BALL_STATE` and the write list are CPU-only too, so they sit past
-the end of bank 1 (`$8000+` is plain RAM: no cartridge maps ROM there). Overlaps
-between them are `.errorif` build errors.
+`intro_raster.asm` lives up at `$6b00` because Main Code ran out of room for
+it. It is code, not graphics, and the VIC is never pointed at it. `BALL_STATE`
+and the write list are CPU-only too, at `$8400+` (plain RAM: no cartridge maps
+ROM there). Overlaps between them are `.errorif` build errors.
 
 **The code segment starts at `$2240`, not the usual `$0810`.** A PSID player is
 not relocatable and Nightshift loads at `$1000-$1d77`, so the code has to start
 above it.
 
-The intro runs in **VIC bank 1** (bitmap `$4000`, video matrix `$6000`, its own
-sprites `$6400`) and hands over to **bank 0** text mode for the demo. The two
-sprite sets never collide: the demo's live in bank 0 at `$2000`, the intro's in
-bank 1.
+The whole intro runs in **VIC bank 0** text mode on the demo's own screen at
+`$0400`, filled with solid blocks for the bars. The two sprite sets never
+collide: the intro's labels are at `$0c00` (blocks `$30-$37`), the demo's balls
+at `$2000` (blocks `$80-$87`), and the demo writes its own pointers into
+`$07f8` once the intro is over. `intro_to_text` clears the blocks back to
+spaces with the display off before handing over.
 
 ### Zero page
 
@@ -535,17 +474,14 @@ entries), so it collides with neither block. Re-check if the tune is swapped.
 
 Worth knowing before editing:
 
-- **`vmtab` alignment.** `.align $20` keeps the 32-byte table on one page;
-  `paint_sweep` reads it with `lda abs,y` 512 times a frame and a page cross
-  there costs ~200 cycles a frame.
-- **The sweep stops at `$63e7`**, sixteen bytes short of the sprite pointers at
-  `$63f8`. Extending it would overwrite them.
-- **The logo's two copies are never lit at once.** `set_text_ramp` has exactly
-  two ramps — off and hot — because through A, B and F the flying sprite copy is
-  on screen and lighting the carving at the same time would put two logos up,
-  which is the one thing the two-copy design exists to avoid. A half-lit ramp
-  was removed for this reason; do not add one back without moving the sprites
-  out of the way first.
+- **The colour RAM copy order is timed against the beam.** `intro_phase` runs
+  sprite writes, `copy_rows0`, `copy_rows6`, music, `copy_rows13`, then the
+  rest. Moving the music earlier, merging the top two copies, or adding work
+  before them makes the top rows show the previous frame's bars for a few
+  lines. Re-measure on NTSC after any change there.
+- **Label sprite writes happen right after the line-250 sync.** The lowest
+  label row is line 244 and the highest label is at Y 56+, so that is the only
+  place a Y write can never land inside a label being drawn.
 - **`$3fff` must stay zero.** With the vertical border open the VIC spends the
   border lines idle, displaying the last byte of the bank rather than the
   screen. Leave junk there and it tiles the whole opened border.
@@ -553,8 +489,8 @@ Worth knowing before editing:
   in lines 248-250 and the 25-row write anywhere from 252 to 246 of the next
   frame (the top IRQ does it at 16). `mux_irq` checks the bottom line before it
   applies any sprite entries, so a pile of entries cannot push it past 250.
-- **Nothing of the demo's may overlap the intro's wave fields.** They are
-  assembled-in data that `R` replays. `.errorif` guards the layout.
+- **Nothing of the demo's may overlap the intro's assembled-in data.** `R`
+  replays the intro from it. `.errorif` guards the layout.
 - **The main loop never writes a sprite register.** Everything goes through
   `build_list` and the IRQ; a direct write would be overwritten mid-frame, or
   worse, land between a band-0 write and a re-use.
@@ -562,10 +498,6 @@ Worth knowing before editing:
   duration counter through `BeatDec`.** Calling `MUSIC_PLAY` directly makes
   the tune 20% fast on NTSC; a plain `dec` on a phase counter drifts the
   phase off the beat.
-- **Phase D is the tightest frame in the intro.** `flash_field` is ~7200
-  cycles (the comment in `intro.asm` and an older 13056 figure disagree; not
-  re-measured). An overrun is benign — `intro_sync` misses line 250 and waits a
-  frame, so the white-out stutters rather than breaking.
 
 ---
 
@@ -575,7 +507,8 @@ Everything here is VICE (`x64sc`), NTSC first and PAL second; nothing has been
 run on real hardware yet.
 
 Measured in VICE on NTSC: the demo's frame budget at 8, 12 and 16 balls (table
-above), the overture's off-screen work (one late frame in the whole overture —
+above), the intro's colour RAM copy deadlines and frame budget (table in **The
+intro**), the overture's off-screen work (one late frame in the whole overture —
 the first, which is black anyway), and whole-sequence screenshots on both
 standards showing the same phase at the same wall-clock time. The open border
 and the `MIN_Y` ghost threshold were verified visually on PAL.
@@ -611,9 +544,24 @@ fixed:
 - NTSC: the overture's work overran into the bar band on ~half its frames, and
   the PAL tune played 20% fast.
 
-Known and not fixed: the floor is not really a checkerboard (its tiles are so
-wide the lower floor is two halves), a one-cell hole in the `v1.0` plate, the
-sun's aspect ratio, and the overture still says "ONE RASTER".
+Known and not fixed at the time: the floor is not really a checkerboard, a
+one-cell hole in the `v1.0` plate, the sun's aspect ratio, and the overture
+still says "ONE RASTER". (The first three went away with the sunset bitmap;
+see below.)
+
+### Intro rework, 2026-10-05
+
+The bitmap intro was replaced in two steps. First the four cell fields, the
+carved logo and its handoff, the white flash and the curtain wipe gave way to
+one calm sunset field, luminance fades and sprite-only labels on damped
+springs. Then, on request, the sunset bitmap went too: the title now comes up
+on plain black, holds, and floats over vertical raster bars in text mode.
+`intro_gfx.asm` was deleted (it is in git history, commit `e10ab0f`).
+
+A `c64-reviewer` static pass over the spring code found one defect, fixed: the
+homing snap window was -1..+1, but the spring also rests at -2, so a label could
+end the intro 2 px off home. It also decorrelated the X and Y target picks
+(consecutive LFSR outputs are 2x apart).
 
 ### Earlier review
 
