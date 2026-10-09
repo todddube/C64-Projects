@@ -12,6 +12,15 @@ Written for **KickAssembler v5.25**, targeted at **NTSC** C64s (US machines)
 first and PAL second, tested in **VICE x64sc** on both, deployed via an
 **Ultimate II+** cartridge.
 
+| | |
+|---|---|
+| ![Raster bar overture](screenshots/overture.png) | ![Title card](screenshots/title.png) |
+| The raster bar overture | The title card on black |
+| ![Vertical raster bars behind the floating title](screenshots/intro-bars.png) | ![Rolling Boing balls over the starfield](screenshots/balls.png) |
+| Vertical bars behind the floating title | Eight rolling balls in the open border |
+
+Screenshots from VICE x64sc, NTSC.
+
 ---
 
 ## Build and run
