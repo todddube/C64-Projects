@@ -11,8 +11,8 @@
 //------------------------------------------------------------------------------
 // Include C64 Standard Library
 //------------------------------------------------------------------------------
-#import "../../C64-Standards/include/c64_constants.asm"
-#import "../../C64-Standards/include/zeropage.asm"
+#import "../C64-Standards/include/c64_constants.asm"
+#import "../C64-Standards/include/zeropage.asm"
 
 //------------------------------------------------------------------------------
 // Load SID music file

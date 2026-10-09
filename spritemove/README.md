@@ -2,8 +2,8 @@
 
 A Commodore 64 demo in 6502 assembly: a raster bar overture, a title card on
 black followed by vertical raster bars with the title floating over them, then
-4 to 16 shaded balls (8 to start)
-drifting around a starfield with collision sparks and SID ping effects, using
+4 to 16 rolling checkered "Boing" balls (8 to start) flying around a
+starfield with real elastic collisions, collision sparks and SID ping effects, using
 the full height of the screen — the vertical border is held open, so the balls
 fly into it. Past eight balls the VIC's eight sprites are multiplexed by a
 raster IRQ.
@@ -269,10 +269,46 @@ in six on NTSC.
 
 ### The demo
 
-Multicolor sprites — ray-shaded balls, generated at assembly time — drift
-around a black starfield with smooth random motion, 4 to 16 of them at once
-(`B` / `SHIFT+B`, default 8). Each ball spins as it moves, faster when it
-moves faster and reversing when it turns.
+Multicolor sprites — checkered "Boing" balls, ray-shaded at assembly time —
+fly around a black starfield like billiard balls on a frictionless table, 4 to
+16 of them at once (`B` / `SHIFT+B`, default 8).
+
+#### Rolling: 128 frames
+
+`sprite_gen.asm` renders 128 frames into `$2000-$3fff`, all of VIC bank 0 above
+the character ROM shadow. The light stays fixed at the top left and the checker
+turns underneath it. The frames are a grid of 8 horizontal by 16 vertical roll
+phases. Each ball keeps two roll accumulators that add the distance it moved on
+each axis, and the frame shown is `$80 | Yphase << 3 | Xphase`. One phase step
+is 2 px of travel in X and 1 px in Y, which is one sprite pixel on each axis,
+since a multicolor pixel is two wide. One period of the checker (90°) is exactly
+the 16 px a 10.2 px-radius ball travels while turning 90°. So the ball rolls
+without slipping in any direction, at any speed. To make room, the code moved
+up to `$4000`.
+
+#### Physics: elastic collisions
+
+Ball to ball contact is a real 2D collision between equal masses. `|dx|` and
+`|dy|` index a 20 × 20 table (`physics_tables.asm`, built at assembly time) that
+gives a true circle test, the unit normal `n` and a push-apart distance. If the
+two balls are closing along `n`, they exchange the parts of their velocities
+along it:
+
+    dot = (vA - vB) · n      vA -= dot·n      vB += dot·n
+
+A head-on hit stops the striker dead and sends the other ball off (Newton's
+cradle). A glancing hit deflects both a little. The four 16×8 multiplies use
+quarter-square tables (`mul8`, ~45 cycles each). Walls are elastic too, and
+they only reflect a ball that is moving into them. With no friction, energy
+is only passed around, never lost, so the balls never run down. The normals
+are quantised so that `|n|²` stays as close to 1 as 7-bit rounding allows,
+because a normal that is always slightly short would drain energy on every
+hit. A pile-up resolves at most `MAX_HITS` (3) exchanges per frame and leaves
+the rest for two frames later.
+
+Balls no longer swap colours on contact. With a real momentum exchange, a
+head-on pair swaps velocities, and swapping colours as well would make them look
+as if they passed straight through each other.
 
 #### Sprite multiplexing: more balls than the VIC has sprites
 
@@ -318,19 +354,32 @@ it walks only every other outer position, so a pair is tested every second
 frame — invisible at ≤2.5 px a frame against a 20 px contact zone.
 
 The other big saving is the **velocity cache**: the speed-scaled velocity
-(`ScaleVel`, ~300 cycles a call, twice per ball) used to be recomputed for
-every ball every frame. It is now stored per ball and only recomputed while a
-ball eases up to speed, and a few balls a frame after the speed level changes;
-a bounce just negates it along with the base velocity.
+(`ScaleVel`) is stored per ball. It is only recomputed while a ball eases up to
+speed, after a collision, and for a few balls a frame after the speed level
+changes. A wall bounce just negates it along with the base velocity.
+`ScaleVel` itself is now two table lookups (~75 cycles; it was a ~300-cycle
+shift-and-add). `build_speed` rebuilds the tables whenever the level changes.
+That takes ~12000 cycles, so the frame of a speed change is shown twice.
 
-Measured on NTSC (VICE `x64sc -ntsc`, 600 frames, balls at speed), out of a
-17095-cycle frame:
+Measured on NTSC (VICE `x64sc -ntsc`, 100 s ≈ 4400 frames each). A late frame
+is one where the top IRQ found no new write list and showed the last one again:
 
-| Balls | Average | Worst | Late frames |
+| Balls | Speed | Late frames | Before the elastic collisions |
 |---|---|---|---|
-| 8 | ~5000 | ~6100 | 0 |
-| 12 | ~8400 | ~10600 | 0 |
-| 16 | ~12600 | ~14400 | 0 |
+| 8 | 4 or 16 | 0 | — |
+| 12 | 8 | 1 | — |
+| 16 | 4 | 53 (1.2%) | 64 |
+| 16 | 16 | 79 (1.8%) | 64 |
+
+At 16 balls the demo sits right at the edge of an NTSC frame, before and after
+this change. Collisions are checked against the previous frame's Y order (the
+sort runs after them), so one sort per frame is enough. A second sort just for
+the collisions was what pushed every collision frame over budget.
+
+Known limit: at speed 16, two balls near the 2 px/frame velocity cap can close
+by more than a diameter between two tests of their pair, and then pass through
+each other. It needs speeds well above the starting 1.25 px/frame, so it is
+rare and only happens at the top speed levels.
 
 Ball *state* doesn't fit in zero page at 16 balls (24 tables x 16 is 384
 bytes, more than all of `$02-$FF`), so it lives in ordinary RAM at `$8400`
@@ -344,12 +393,13 @@ Everything moves in **8.8 fixed point**, one byte of whole pixels and one of
 1/256ths, so a ball can travel at 0.3 px/frame and still look smooth. X needs 9
 bits, so it is carried as `x_msb : x_lo : x_frac`.
 
-Each ball gets one random heading at startup and keeps it. Only two things ever
-change direction: reaching an edge (that axis reflects) or touching another ball
-(they push apart and swap colours). A bell-like SID ping fires on every bounce —
-low for a wall, higher and randomly pitched for a ball-to-ball hit — and a
-ball-to-ball hit also throws an ASCII spark onto the text screen at the point of
-contact.
+Each ball gets one random heading at startup and eases into it over its first
+64 frames. After that, only two things ever change its velocity: reaching an
+edge (that axis reflects) or hitting another ball (an elastic collision, see
+above). A bell-like SID ping fires on every bounce: low for a wall, higher and
+randomly pitched for a ball-to-ball hit, with a decay that follows the impact
+speed (a 48 ms tick for a graze, a 300 ms ring for a hard hit). A ball-to-ball
+hit also throws an ASCII spark onto the text screen at the point of contact.
 
 Stored velocities are *base* velocities, scaled by the global speed level
 (`effective = base * speed / 8`, cached per ball — see above), so changing speed
@@ -387,7 +437,8 @@ of an NTSC frame's 17095 cycles, which does not fit next to this much physics.
 | File | Contents |
 |---|---|
 | `main.asm` | The demo: registers, zero page, video standard detection, main loop, multiplexer IRQ, physics, collisions, sparks, sound, status bar |
-| `sprite_gen.asm` | Assembly-time ball frames (8) |
+| `sprite_gen.asm` | Assembly-time ball frames (128 rolling Boing-ball frames) |
+| `physics_tables.asm` | Assembly-time quarter-square multiply tables and the 20×20 collision table |
 | `intro.asm` | The intro after the overture: phases, vertical bars and the colour RAM copy, label springs and wander, fades |
 | `intro_sprites.asm` | The label sprites (name; date + `v1.0`) and the sine table |
 | `intro_text.asm` | Glyph rows for the name, date and `v1.0`, lifted from the C64 character ROM |
@@ -395,7 +446,7 @@ of an NTSC frame's 17095 cycles, which does not fit next to this much physics.
 | `music.asm` | PSID import of `Nightshift.sid` |
 | `Nightshift.sid` | The intro tune |
 
-None of the `intro_*` files or `sprite_gen.asm` assemble on their own — they are
+None of the `intro_*` files, `sprite_gen.asm` or `physics_tables.asm` assemble on their own — they are
 `#import`ed into `main.asm` and depend on its labels. Only `intro.asm` lands
 inside Main Code; the others set their own `* =` segments.
 
@@ -405,25 +456,29 @@ inside Main Code; the others set their own `* =` segments.
 
 ```
 $0002-$0014  zero page: the intro's variables, ntsc, music_div, beat_hold
-$007a-$00ad  zero page: the demo's globals, sort scratch, the IRQ's state
+$007a-$00bc  zero page: the demo's globals, sort scratch, the IRQ's state,
+             collision scratch
 $00f8-$00f9  zero page: Nightshift's player (traced - nothing else)
 $0314-$0315  IRQ vector -> mux_irq (demo only)
 $0318-$0319  NMI vector -> nmi_ignore
 $0400-$07e7  text screen: stars, status rows 23-24 (sprite pointers at $07f8)
-$0801        BASIC stub "10 SYS 8768" (8768 = $2240)
+$0801        BASIC stub "10 SYS 16384" (16384 = $4000)
 $0900-$0a0b  raster bar line buffer: one colour per raster line
 $0c00-$0dff  intro label sprites (8 x 64 bytes, VIC blocks $30-$37)
 $1000-$1d77  Nightshift.sid - player and data at its own load address
-$2000-$21ff  8 ball frames, 64 bytes each   (VIC blocks $80-$87)
+$2000-$3fff  128 ball frames, 64 bytes each (VIC blocks $80-$ff)
              shared by all the balls; each ball's pointer picks its
              own current frame
-$2240-$3fff  code and data tables (Main Code, ends ~$3549)
-$3fff        VIC idle fetch - displayed in the opened border, zeroed at
-             start-up
+$3fff        VIC idle fetch - displayed in the opened border; it is the
+             last frame's pad byte, 0
+$4000-$5bff  code and data tables (Main Code, ends ~$5600)
+$5c00-$63ff  quarter-square multiply tables (CPU only)
 $6600-$66ff  intro sine table   (CPU only)
 $6b00-$73ff  intro_raster.asm's code and data (CPU only, ends ~$714f)
-$8400-$857f  BALL_STATE: 24 per-ball tables x 16 balls
+$7400-$80a7  collision table (CPU only)
+$8400-$859f  BALL_STATE: 26 per-ball tables x 16 balls
 $8600-$873f  the multiplexer's double-buffered write list
+$8800-$8a0f  ScaleVel's speed tables, built at run time
 ```
 
 `intro_raster.asm` lives up at `$6b00` because Main Code ran out of room for
@@ -431,14 +486,14 @@ it. It is code, not graphics, and the VIC is never pointed at it. `BALL_STATE`
 and the write list are CPU-only too, at `$8400+` (plain RAM: no cartridge maps
 ROM there). Overlaps between them are `.errorif` build errors.
 
-**The code segment starts at `$2240`, not the usual `$0810`.** A PSID player is
-not relocatable and Nightshift loads at `$1000-$1d77`, so the code has to start
-above it.
+**The code segment starts at `$4000`, not the usual `$0810`.** A PSID player is
+not relocatable and Nightshift loads at `$1000-$1d77`, and `$2000-$3fff` is all
+ball frames, so the code starts above VIC bank 0.
 
 The whole intro runs in **VIC bank 0** text mode on the demo's own screen at
 `$0400`, filled with solid blocks for the bars. The two sprite sets never
 collide: the intro's labels are at `$0c00` (blocks `$30-$37`), the demo's balls
-at `$2000` (blocks `$80-$87`), and the demo writes its own pointers into
+at `$2000` (blocks `$80-$ff`), and the demo writes its own pointers into
 `$07f8` once the intro is over. `intro_to_text` clears the blocks back to
 spaces with the display off before handing over.
 
@@ -450,6 +505,8 @@ $12-$14  ntsc, music_div, beat_hold - shared by intro and demo
 $7a-$9f  the demo's globals (RNG, timers, scratch, speed, keyboard, ball
          count, sort and collision scratch)
 $a0-$ad  the multiplexer IRQ's state and build_list's scratch
+$ae-$bc  collision physics scratch (mul_vn, mul8, check_pair) and ping_len -
+         the kernal's tape/RS-232 workspace, never used here
 ```
 
 The per-ball tables used to live at `$02-$79`, one 8-byte row each — that was
@@ -461,8 +518,8 @@ absolute-memory form on the 6502.
 **The intro's variables share `temp`/`temp2` with the demo.** `play_intro` runs
 to completion before `init_sprites` writes a single byte of demo state, so the
 two are never live at the same time. One consequence worth remembering: nothing
-the demo needs may be written *before* `play_intro` — `speed`, `key_timer`,
-`swap_cool` and the spark slots are set after it returns for exactly this
+the demo needs may be written *before* `play_intro` — `speed`, `key_timer`
+and the spark slots are set after it returns for exactly this
 reason.
 
 Nightshift's player touches only `$f8/$f9` (traced from its init and play

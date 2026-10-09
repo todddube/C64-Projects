@@ -22,16 +22,19 @@
 //
 // WHAT THIS PROGRAM DOES
 // ----------------------
-// Shaded multicolor balls - 8 to start, 4 to 16 with B / SHIFT+B - drift
-// around a black, starry screen with smooth, organic, random motion. Past
+// Checkered "Boing" balls - 8 to start, 4 to 16 with B / SHIFT+B - fly
+// around a black, starry screen like billiard balls on a frictionless
+// table: perfectly elastic bounces off the edges and real momentum
+// exchange between balls, along the line between their centers. Past
 // eight they are multiplexed: a raster IRQ re-uses each of the VIC's eight
 // hardware sprites for a second ball further down the screen (mux_irq).
-// Each ball spins as it moves, faster when it moves faster and reversing
-// when it turns. A short bell-like ping plays on the SID whenever a ball
+// Each ball ROLLS as it moves - 128 frames, the texture turning under a
+// fixed light at exactly the speed and in exactly the direction the ball
+// travels. A short bell-like ping plays on the SID whenever a ball
 // bounces off an edge or off another ball - low for a wall, higher and
-// randomly pitched for a ball-to-ball hit. A ball-to-ball hit also throws
-// an ASCII spark onto the text screen at the point of contact and makes
-// the two balls swap colors.
+// randomly pitched for a ball-to-ball hit, ringing longer the harder the
+// hit. A ball-to-ball hit also throws an ASCII spark onto the text screen
+// at the point of contact.
 //
 // The vertical border is held open (see mux_irq), so the balls use the
 // whole visible picture from top to bottom rather than just the 25-row
@@ -66,7 +69,8 @@
 //   1. Hardware register labels        VIC-II, screen/color RAM, CIA1, SID
 //   2. Zero page variables             per-ball tables + scratch/state
 //   3. Constants                       screen limits, effect tuning
-//   4. Macros                          EaseVelocity, Negate16, ScaleVel
+//   4. Macros                          EaseVelocity, Negate16, NegateZpIf,
+//                                      ClampVel, ScaleVel
 //   5. start / main_loop               one-time setup, intro, then per frame:
 //        detect_video       (once) NTSC or PAL
 //        play_intro         (once) raster overture, labels + bars + music,
@@ -75,25 +79,28 @@
 //        check_exit         RUN/STOP / Q -> silence hardware, reset; R
 //        update_input       keyboard -> speed level, ball count, status bar
 //        rescale_some       catch the velocity cache up after a speed change
-//        update_sprites     integrate, edge bounce, spin frame (+ easing)
+//        update_sprites     integrate, edge bounce, roll frame (+ easing)
+//        check_collisions   Y-pruned pair sweep, half per frame, elastic
+//                           collisions (check_pair)
 //        sort_balls         ball_order ascending by Y
-//        check_collisions   Y-pruned pair sweep, half per frame, push apart
 //        build_list         the multiplexer's write list from this frame
 //        update_effects     impact sparks, star twinkle, cooldowns
 //        update_sound       age the ping cooldown
 //      mux_irq              raster IRQ chain: band 0 + sprite re-use +
 //                           the open border
-//   6. Helper routines                 reverse_x/y, new_heading, random_speed,
-//                                      init_stars, draw_status,
-//                                      spawn_spark,
-//                                      draw_speed_bar, push_ball, sound, RNG
+//   6. Helper routines                 reverse_x/y, scale_ball, build_speed,
+//                                      new_heading, random_speed,
+//                                      init_stars, draw_status, spawn_spark,
+//                                      draw_speed_bar, nudge_ball,
+//                                      settle_ball, mul_vn, mul8, sound, RNG
 //   7. Data tables                     colors, status text, spark slots,
 //                                      star positions, row offsets
-//   8. #import "sprite_gen.asm"        8 shaded ball frames
+//   8. #import "sprite_gen.asm"        128 rolling ball frames
 //      #import "intro.asm"            the opening sequence (its own header)
 //      #import "music.asm"            PSID import of the intro tune
 //      #import "intro_sprites.asm"    the label sprites + sine table
 //      #import "intro_raster.asm"     the raster bar overture + fade-out bars
+//      #import "physics_tables.asm"   multiply + collision tables
 //        (intro_sprites.asm pulls in intro_text.asm - glyph rows,
 //        assembly time only)
 //
@@ -101,29 +108,33 @@
 // -------------
 //   $0002-$0014  zero page: the intro's variables, ntsc, music_div,
 //                beat_hold
-//   $007a-$00ad  zero page: the demo's globals and the IRQ's state
+//   $007a-$00bc  zero page: the demo's globals, the IRQ's state and the
+//                collision scratch
 //   $00f8-$00f9  zero page: Nightshift's player (traced: nothing else)
 //   $0314-$0315  IRQ vector -> mux_irq during the demo
 //   $0318-$0319  NMI vector -> nmi_ignore (RESTORE does nothing)
 //   $0400-$07e7  text screen: stars, status rows 23-24 (the sprite
 //                pointers live at $07f8-$07ff inside the same 1K block)
-//   $0801        BASIC stub "10 SYS 8768"  (8768 = $2240)
+//   $0801        BASIC stub "10 SYS 16384"  (16384 = $4000)
 //   $0900-$0a0b  raster bar line buffer: one colour per raster line
 //   $0c00-$0dff  intro label sprites (8 x 64 bytes, VIC blocks $30-$37)
 //   $1000-$1d77  Nightshift.sid - player and music data, at its own load
 //                address (invisible to the VIC, which sees char ROM here)
-//   $2000-$21ff  8 ball frames, 64 bytes each  (VIC blocks $80-$87)
-//   $2240-$3fff  code and data tables (Main Code; ends ~$3580)
+//   $2000-$3fff  128 ball frames, 64 bytes each (VIC blocks $80-$ff)
 //   $3fff        VIC idle fetch - what the VIC displays in the opened
-//                border, zeroed at start-up (see VIC_IDLE_FETCH)
+//                border: the last frame's pad byte, 0 (VIC_IDLE_FETCH)
+//   $4000-$5bff  code and data tables (Main Code; ends ~$5600)
+//   $5c00-$63ff  quarter-square multiply tables (CPU only)
 //   $6600-$66ff  intro sine table   (CPU only)
-//   $6b00-$73ff  intro_raster.asm's code and data (CPU only; ends ~$7190)
-//   $8400-$857f  BALL_STATE: 24 per-ball tables x 16
+//   $6b00-$73ff  intro_raster.asm's code and data (CPU only; ends ~$7150)
+//   $7400-$80a7  collision table: normals and push-apart, 20 x 20
+//   $8400-$859f  BALL_STATE: 26 per-ball tables x 16
 //   $8600-$873f  the multiplexer's double-buffered write list
+//   $8800-$8a0f  ScaleVel's speed tables (build_speed)
 //
 // SPRITE ROLES
 // ------------
-//   sprites 0-7  the balls   (multicolor, 8 animation frames each)
+//   sprites 0-7  the balls   (multicolor, 128 animation frames)
 // All eight of the VIC's sprites are balls. With up to 8 balls each has
 // its own sprite; past 8, sprite k shows the k-th highest ball (band 0)
 // and is then re-used, mid-frame, for the (k+8)-th (see build_list).
@@ -142,19 +153,21 @@
 //   * Target vel   - signed 8.8 (tvx_hi:tvx_lo). Where the ball *wants* to go.
 //
 // Each ball is given ONE random heading at start-up (random base speed
-// 0.25..1.25 px/frame on each axis, random sign) and keeps it. The only
-// things that ever change a ball's direction are:
-//   * reaching the edge of the screen  (that axis is reflected)
-//   * touching another ball            (pushed apart, see below)
-//
-// Every frame the velocity is eased toward the target:
+// 0.25..1.25 px/frame on each axis, random sign). For its first
+// EASE_FRAMES frames the velocity is eased toward it,
 //
 //       vel += (target - vel) / 16
 //
-// With no periodic retargeting the target only differs from the velocity
-// right after start-up, so the balls accelerate smoothly from rest into
-// their heading and then travel in a straight line. Bounces flip both
-// velocity and target together, so they are instant, like a billiard ball.
+// so the balls roll smoothly away from rest; after that the target plays
+// no part and the balls are pure Newtonian bodies: no friction, no drag,
+// a straight line at constant speed until something hits them. The only
+// things that ever change a ball's velocity are:
+//   * reaching the edge of the screen  (that axis is reflected - an
+//                                       elastic wall)
+//   * hitting another ball             (an elastic collision, see below)
+// Both conserve energy, so the balls never run down; collisions only
+// share it out, the way a gas does - some balls end up fast, some slow,
+// and it keeps changing.
 //
 // SPEED CONTROL
 // -------------
@@ -165,12 +178,14 @@
 //       effective = base * speed / 8          (speed = 1..16)
 //
 // so level 8 is the base speed, the default of 4 is half speed, and 16 is
-// double. The multiply is a 16x5-bit shift-and-add on the magnitude, then
-// the sign is restored (see ScaleVel). The effective velocity is CACHED
-// per ball (evx/evy): it is recomputed only while a ball eases up to
-// speed, and a few balls a frame after the level changes - a bounce just
-// negates it along with the base velocity. Recomputing it every frame was
-// ~600 cycles a ball, more than 16 balls can afford in an NTSC frame.
+// double. The physics (collisions, bounces) all works on the base
+// velocity, so changing the speed is just a change of time scale - the
+// same paths, faster or slower. The multiply is two table lookups on the
+// magnitude, then the sign is restored (see ScaleVel and build_speed).
+// The effective velocity is CACHED per ball (evx/evy): it is recomputed
+// only while a ball eases up to speed, after a collision, and a few balls
+// a frame after the level changes - a wall bounce just negates it along
+// with the base velocity.
 //
 // Keys (CIA1 matrix scanned directly, no kernal):
 //     CRSR up, CRSR right, +    faster
@@ -190,10 +205,13 @@
 // the whole visible picture from top to bottom rather than the 25-row
 // text window. Hard bounce limits are X 22..322 and Y 56..250: the balls
 // fly over and below the status row, down into what would be the bottom
-// border. When a ball reaches an edge its position is clamped and the
-// velocity (and target) on that axis is reversed. The other axis is left
-// alone, so a ball hitting the right wall while moving down keeps moving
-// down - a clean reflection.
+// border. When a ball reaches an edge its position is clamped and, if it
+// is moving into the wall, the velocity (and target) on that axis is
+// reversed. The other axis is left alone, so a ball hitting the right
+// wall while moving down keeps moving down - a clean reflection. (A ball
+// already moving away is left alone: a collision can push a ball over the
+// edge while it is heading back, and reflecting it then would turn it
+// back into the wall.)
 //
 // Y 56 is a hardware floor on PAL, not a style choice. A sprite is
 // triggered when the low 8 bits of the raster match its Y, and PAL lines
@@ -212,31 +230,49 @@
 // -----------------------
 // After every physics step, pairs of balls are tested in software
 // (the VIC's $d01e collision register only says *that* a sprite touched
-// something, not which one, and only for non-transparent pixels). Two
-// balls touch when the distance between their centers is under the
-// 20 px ball diameter, approximated as
-//       |dx| < 20  and  |dy| < 20  and  |dx| + |dy| < 30
-// (a box with the corners cut off - close enough to a circle). Only
+// something, not which one, and only for non-transparent pixels). Only
 // pairs within 20 px in Y are tested at all (the Y-sorted ball_order makes
 // that a short walk), and only half of them each frame - see
 // check_collisions.
-// On contact each ball's velocity AND target are forced to point away
-// from the other ball on both axes. Forcing the sign (instead of simply
-// reversing) means overlapping balls always separate and never jitter or
-// stick together. Each hit also fires a ping and throws off a spark.
+//
+// The test and the response are real 2D physics, with no square roots or
+// divides at run time: |dx| and |dy| index a 20 x 20 table
+// (physics_tables.asm) that says whether the centers are under 20 px
+// apart - a true circle test - and gives the unit normal n between them
+// and how far to push them apart. If they are closing along n, the two
+// balls exchange the components of their velocities along n and keep the
+// rest - an elastic collision between equal masses:
+//
+//       dot = (vA - vB) . n        vA -= dot * n        vB += dot * n
+//
+// A head-on hit stops the striker dead and sends the other ball off at
+// its speed (Newton's cradle); a glancing one deflects both a little; a
+// ball struck from the side goes off along the line of centers. The
+// multiplies are quarter-square table lookups (mul8). Each hit fires a
+// ping that rings longer the harder it was, and throws off a spark.
+//
+// The balls used to swap colors when they hit. With a real momentum
+// exchange that would be wrong: in a head-on hit the balls swap
+// velocities, and swapping colors as well makes them look as if they
+// passed straight through each other.
 //
 // ANIMATION
 // ---------
-// The eight 24x21 multicolor frames at $2000 are not hand-drawn: a
-// KickAssembler script in sprite_gen.asm ray-shades a sphere with
-// a light source that rotates 45 degrees per frame. Bit pairs map to:
-//     01 = highlight (white, $d025)   10 = body (per-sprite $d027+n)
-//     11 = shadow (dark grey, $d026)  00 = transparent
+// The 128 24x21 multicolor frames at $2000-$3fff are not hand-drawn: a
+// KickAssembler script in sprite_gen.asm ray-shades a checkered sphere
+// (the Amiga "Boing" ball) under a FIXED light, top left, and rolls the
+// checker under it. Bit pairs map to:
+//     01 = white square + glint ($d025)  10 = colored square ($d027+n)
+//     11 = shadow (dark grey, $d026)     00 = transparent
 //
-// The frame shown is taken from an "animation accumulator" that adds the
-// velocity every frame. Bits 3..5 of its whole-pixel byte select the frame,
-// so one frame step happens every 8 pixels travelled - the ball appears to
-// roll, and the roll direction follows the movement direction.
+// The frames are a grid of 8 horizontal x 16 vertical roll phases. Each
+// ball has two roll accumulators, one per axis, that add the distance it
+// actually moved on that axis every frame; the frame shown is
+//     Y phase (1 px per step) * 8 + X phase (2 px per step)
+// - one step per sprite pixel on each axis, since a multicolor pixel is
+// 2 wide - and one period of the checker is exactly the 16 px a ball of
+// this size travels while turning 90 degrees. So the ball rolls without
+// slipping, in whatever direction it goes, at whatever speed.
 //
 // SOUND
 // -----
@@ -245,13 +281,16 @@
 // every register and takes voice 1 back for the sound effects, so the tune
 // does not play under the demo. For the rest of the demo:
 //
-// SID voice 1 is a triangle wave with an instant attack, a ~200 ms decay
+// SID voice 1 is a triangle wave with an instant attack, a short decay
 // and no sustain, and the filter bypassed - one plucked ping per trigger,
 // which dies on its own with no per-frame envelope work. Every wall bounce
 // and ball-to-ball hit calls trigger_ping with a pitch: PING_WALL ($24,
 // a low knock) for a wall, one of $30/$38/$40/$48 picked at random for a
-// ball-to-ball hit, so repeated hits do not sound mechanical. A PING_COOL
-// cooldown of 6 frames keeps a cluster of contacts from machine-gunning.
+// ball-to-ball hit, so repeated hits do not sound mechanical. The decay
+// follows the impact speed (ping_strength): a graze is a 48 ms tick, a
+// hard hit rings for 300 ms. (Volume would be the obvious knob, but
+// writing $d418 clicks on a 6581.) A PING_COOL cooldown of 6 frames keeps
+// a cluster of contacts from machine-gunning.
 //
 // VISUAL EFFECTS
 // --------------
@@ -270,9 +309,6 @@
 //                     handoff clears it back to spaces with DEN off, and
 //                     the balls are simply there when it comes on. See
 //                     intro.asm for the animation itself.
-//   * Color swap    - colliding balls exchange body colors. A short
-//                     cooldown stops the swap bouncing back and forth
-//                     while the balls separate.
 //
 // FRAME TIMING
 // ------------
@@ -285,15 +321,22 @@
 // frame. A main loop that runs long just means the IRQ shows the previous
 // list again: a repeated frame, never a torn one.
 //
-// Measured on NTSC (VICE x64sc -ntsc, 600 frames each, balls at speed):
-//     8 balls   ~5000 cycles a frame average,  ~6100 worst
-//    12 balls   ~8400 average, ~10600 worst
-//    16 balls  ~12600 average, ~14400 worst  - of 17095; no late frames
+// Measured on NTSC (VICE x64sc -ntsc, 100 s = ~4400 frames each, counting
+// frames where the top IRQ found no new list):
+//     8 balls, speed 4 or 16    no late frames
+//    12 balls, speed 8          1 late frame
+//    16 balls, speed 4          53 late frames (1.2%)
+//    16 balls, speed 16         79 late frames (1.8%)
+// The code before the elastic collisions, measured the same way, was
+// late on 64 frames at 16 balls at either speed: 16 balls is right at the
+// edge of an NTSC frame either way, and a late frame is a repeat, never
+// a tear. A collision costs ~1500 cycles (four multiplies, two rescales,
+// a spark), so at most MAX_HITS are resolved a frame.
 //
 //==================================================================
 
-BasicUpstart2(start)            // emits a "10 SYS 8768" BASIC stub at $0801
-                                // (8768 = $2240, where the code starts)
+BasicUpstart2(start)            // emits a "10 SYS 16384" BASIC stub at $0801
+                                // ($4000, where the code starts)
 
 //------------------------------------------------------------------
 // VIC-II Registers
@@ -400,19 +443,21 @@ BasicUpstart2(start)            // emits a "10 SYS 8768" BASIC stub at $0801
 .label want_sx      = $80       // collision: desired X velocity sign ($00/$ff)
 .label want_sy      = $81       // collision: desired Y velocity sign ($00/$ff)
 .label save_x       = $82       // collision: saved ball index
-.label swap_cool    = $83       // frames until balls may swap colors again
+.label col_b        = $83       // check_pair: ball B's identity
 .label ptr          = $84       // 16-bit pointer for (ptr),y access ($84/$85)
                                  // MUST stay zero page: indirect indexed
                                  // addressing has no absolute form
-.label m0           = $86       // ScaleVel: 24-bit multiplicand ($86..$88)
-.label p0           = $89       // ScaleVel: 24-bit product ($89..$8b)
+.label m0           = $86       // ScaleVel / build_speed scratch ($86..$88)
+.label p0           = $89       // ScaleVel / mul_vn / build_speed ($89..$8b)
 .label vsign        = $8c       // ScaleVel: sign of the input velocity
 .label speed        = $8d       // global speed level 1..16 (8 = base speed)
 .label key_timer    = $8e       // auto-repeat countdown while a key is held
 .label rescale_n    = $8f       // balls still to rescale after a speed
                                 // change (counts down, a few per frame)
-                                // $90-$92 free (were the evx/evy scratch,
-                                // now per-ball tables in BALL_STATE)
+.label mul_f        = $90       // mul_vn: the 0..128 factor
+.label mul_sign     = $91       // mul_vn: sign of its input
+.label hit_count    = $92       // check_collisions: velocity exchanges
+                                // left this frame (see MAX_HITS)
 .label key_shift    = $93       // nonzero if either shift key is down
 .label key_delta    = $94       // +1 / -1 speed change requested, 0 = none
 .label active_balls = $95       // how many of MAX_BALLS are in play, 4..16
@@ -421,7 +466,11 @@ BasicUpstart2(start)            // emits a "10 SYS 8768" BASIC stub at $0801
 // itself (a per-ball ARRAY, so it lives there, not here).
 .label sort_i        = $96      // insertion sort: outer index i
 .label sort_j         = $97      // insertion sort: inner (shifting) index j
-                                 // $98-$9c free (the polled bands' scratch)
+.label c_nx          = $98      // check_pair: the collision normal from
+.label c_ny          = $99      // COLL_TAB, 128ths, signs in want_sx/sy
+.label mul_v         = $9a      // mul_vn: 16-bit signed input ($9a/$9b),
+                                 // destroyed
+                                 // $9c free
 .label pair_a          = $9d      // check_collisions: ball A's identity,
                                    // held across the inner loop - kept
                                    // separate from check_pair's OWN
@@ -456,6 +505,18 @@ BasicUpstart2(start)            // emits a "10 SYS 8768" BASIC stub at $0801
 .label bld_line       = $ab       // build_list: re-use entry's line
 .label bld_hw         = $ac       // build_list: re-use entry's sprite
 .label bld_msbbit     = $ad       // build_list: re-use entry's $d010 bit
+
+// Collision physics scratch (check_pair, mul_vn, mul8). $ae-$bf are the
+// kernal's tape and RS-232 workspace, which nothing here ever calls.
+.label mul_r          = $ae       // mul_vn: 16-bit signed result ($ae/$af)
+.label mul_res        = $b0       // mul8: 16-bit product ($b0/$b1)
+.label c_dot          = $b2       // check_pair: relative velocity along the
+                                   // normal, 8.8 signed ($b2/$b3)
+.label c_sepx         = $b4       // check_pair: push apart, 8.8 ($b4/$b5)
+.label c_sepy         = $b6       // ($b6/$b7)
+.label c_dvx          = $b8       // check_pair: velocity exchanged, 8.8
+.label c_dvy          = $ba       // signed ($b8/$b9, $ba/$bb)
+.label ping_len       = $bc       // trigger_ping: decay nibble, 2..8
 
 //------------------------------------------------------------------
 // BALL_STATE - the per-ball tables, OUT of zero page.
@@ -508,8 +569,11 @@ BasicUpstart2(start)            // emits a "10 SYS 8768" BASIC stub at $0801
 .label tvx_hi       = BALL_STATE + 10 * MAX_BALLS
 .label tvy_lo       = BALL_STATE + 11 * MAX_BALLS  // Y target velocity, 8.8
 .label tvy_hi       = BALL_STATE + 12 * MAX_BALLS
-.label anim_lo      = BALL_STATE + 13 * MAX_BALLS  // spin accumulator, 8.8
-.label anim_hi      = BALL_STATE + 14 * MAX_BALLS  //   bits 3-5 = current frame
+.label anim_lo      = BALL_STATE + 13 * MAX_BALLS  // horizontal roll: X
+.label anim_hi      = BALL_STATE + 14 * MAX_BALLS  //   distance travelled,
+                                                     //   8.8; bits 1-3 of
+                                                     //   the high byte are
+                                                     //   the frame's X phase
 .label ball_ptr     = BALL_STATE + 15 * MAX_BALLS  // this ball's sprite-data
                                                      // pointer (block number),
                                                      // copied into the write
@@ -528,7 +592,10 @@ BasicUpstart2(start)            // emits a "10 SYS 8768" BASIC stub at $0801
 .label slot_free    = BALL_STATE + 23 * MAX_BALLS  // build_list: first line
                                                      // each hardware sprite is
                                                      // free again (8 used)
-.label BALL_TABLES  = 24
+.label animy_lo     = BALL_STATE + 24 * MAX_BALLS  // vertical roll, the
+.label animy_hi     = BALL_STATE + 25 * MAX_BALLS  //   same for Y; bits 0-3
+                                                     //   are the Y phase
+.label BALL_TABLES  = 26
 
 // The multiplexer's write list, double buffered: the main loop fills the
 // back half while the IRQ shows the front half (dl_front = 0 or 16 picks
@@ -536,6 +603,12 @@ BasicUpstart2(start)            // emits a "10 SYS 8768" BASIC stub at $0801
 // at once by the top IRQ. Entries 8.. are re-uses, one per extra ball:
 // hardware sprite w_slot gets this ball once the raster reaches w_line.
 .label WRITE_LIST   = $8600
+
+// ScaleVel's speed tables, rebuilt by build_speed (run time only).
+.label SPD_FRAC_LO  = $8800     // b * speed / 8, 1/256 px, b = 0..255
+.label SPD_FRAC_HI  = $8900
+.label SPD_WHOLE_LO = $8a00     // h * speed / 8, 1/256 px, h = 0..7
+.label SPD_WHOLE_HI = $8a08
 .label w_x          = WRITE_LIST + 0 * $20   // X low 8 bits
 .label w_y          = WRITE_LIST + 1 * $20
 .label w_ptr        = WRITE_LIST + 2 * $20
@@ -614,16 +687,34 @@ BasicUpstart2(start)            // emits a "10 SYS 8768" BASIC stub at $0801
                                 // the disc's last row lands on line 270,
                                 // still well inside the visible picture
 
-// Ball-to-ball collision thresholds (see header). Ball diameter is 20 px.
+// Ball-to-ball collisions (see the header and check_pair). The ball is
+// 20 px across; physics_tables.asm builds COLL_TAB from these.
 .label BALL_DIAM    = 20
-.label BALL_SUM     = 30        // |dx| + |dy| limit, rounds the corners
+.const SEP_MAX      = 1.5       // px each ball is pushed apart, at most,
+                                // per check (an overlap eases apart)
+.label STALE_SLACK  = 0        // check_collisions: extra Y gap before
+                                // the walk ends - see there for why 0
+.label MAX_HITS     = 3         // velocity exchanges per frame, at most:
+                                // a pile-up waits a frame or two rather
+                                // than overrunning the NTSC frame
+.label VMAX_HI      = $02       // base velocity cap per axis, 2.0 px a
+                                // frame: 4 px at speed 16, which keeps
+                                // MAX_Y + one step under 256
 
-.label SPRITE_DATA      = $2000             // 8 frames x 64 bytes = $2000..$21ff
+// 128 rolling-ball frames (see sprite_gen.asm): 8 X phases x 16 Y phases
+// x 64 bytes = $2000..$3fff, all of VIC bank 0 above the char ROM shadow.
+.label ROLL_X_PHASES    = 8
+.label ROLL_Y_PHASES    = 16
+.label SPRITE_DATA      = $2000
 .label SPRITE_PTR_BASE  = SPRITE_DATA / $40 // = $80, the VIC block number
+                                            // frame f is block $80 | f
+
+// Physics lookup tables (physics_tables.asm), CPU only.
+.label MUL_TABLES   = $5c00     // 4 x 512 bytes, page aligned: $5c00-$63ff
+.label COLL_TAB     = $7400     // 20 x 20 x 8 bytes + row table: $7400-$80a7
 
 // Effects
 .label STAR_COUNT   = 32        // stars on the background (power of 2)
-.label SWAP_COOL    = 16        // frames between color swaps
 .label SPARK_SLOTS  = 4         // impact sparks that can be on screen at once
 .label SPARK_LEN    = 10        // frames a spark stays on screen
 
@@ -733,74 +824,95 @@ shift:
     sta hi, x
 }
 
+// NegateZpIf - v = -v if bit 7 of sign is set. v is a 16-bit zero page
+// pair; sign is a zero page byte ($00 / $ff, e.g. want_sx).
+.macro NegateZpIf(sign, v) {
+    lda sign
+    bpl done
+    sec
+    lda #$00
+    sbc v
+    sta v
+    lda #$00
+    sbc v + 1
+    sta v + 1
+done:
+}
+
+// ClampVel - cap a signed 8.8 per-ball velocity at +/- VMAX_HI.0.
+// X must hold the ball index.
+.macro ClampVel(lo, hi) {
+    lda hi, x
+    bmi negative
+    cmp #VMAX_HI
+    bcc done                    // under +VMAX_HI.0
+    lda #VMAX_HI
+    sta hi, x
+    lda #$00
+    sta lo, x
+    jmp done
+negative:
+    cmp #(-VMAX_HI) & $ff
+    bcs done                    // -VMAX_HI.0 or above
+    lda #(-VMAX_HI) & $ff
+    sta hi, x
+    lda #$00
+    sta lo, x
+done:
+}
+
 // ScaleVel - out = vel * speed / 8, signed 16-bit. X must hold the ball
 // index; out is a per-ball table pair, indexed by X like vel. Uses Y,
-// temp, m0..m2, p0..p2, vsign.
+// m0, p0/p0+1, vsign. ~75 cycles.
 //
 // It scales the MAGNITUDE and puts the sign back afterwards, so
 // ScaleVel(-v) is exactly -ScaleVel(v). That is what lets the result be
-// cached: a bounce that negates v negates the cached value too, instead
-// of paying ~300 cycles to recompute it (see scale_ball).
+// cached: a bounce that negates v negates the cached value too (see
+// scale_ball).
 //
-// The magnitude of vel is multiplied by the 5-bit speed with shift-and-add
-// into a 24-bit product, the product is shifted right 3, and the sign is
-// put back with a two's complement negate.
+// The multiply is two table lookups, rebuilt by build_speed whenever the
+// speed level changes: SPD_FRAC[b] = b * speed / 8 for the fraction byte
+// and SPD_WHOLE[h] = h * speed / 8 for the whole-pixel byte (0..7 - base
+// velocities are capped at VMAX_HI). It used to be a 16 x 5 bit
+// shift-and-add, ~300 cycles an axis; a collision rescales two balls, and
+// at 16 balls that was more than the frame had to spare.
 .macro ScaleVel(vlo, vhi, outlo, outhi) {
     lda vhi, x
     sta vsign
     bpl positive
-    sec                         // m = -vel
+    sec                         // |vel|
     lda #$00
     sbc vlo, x
     sta m0
     lda #$00
     sbc vhi, x
-    sta m0 + 1
-    jmp multiply
+    jmp magnitude
 positive:
     lda vlo, x
     sta m0
     lda vhi, x
-    sta m0 + 1
-multiply:
-    lda #$00
-    sta m0 + 2
+magnitude:
+    and #$07
+    tay                         // Y = whole pixels
+    lda SPD_WHOLE_LO, y
     sta p0
+    lda SPD_WHOLE_HI, y
     sta p0 + 1
-    sta p0 + 2
-    lda speed
-    sta temp                    // multiplier bits are shifted out of temp
-    ldy #$05                    // speed <= 16 needs 5 bits
-mul_loop:
-    lsr temp
-    bcc no_add
+    ldy m0                      // Y = fraction
     clc
     lda p0
-    adc m0
+    adc SPD_FRAC_LO, y
     sta p0
     lda p0 + 1
-    adc m0 + 1
+    adc SPD_FRAC_HI, y
+    ldy vsign
+    bmi negative
+    sta outhi, x
+    lda p0
+    sta outlo, x
+    jmp done
+negative:
     sta p0 + 1
-    lda p0 + 2
-    adc m0 + 2
-    sta p0 + 2
-no_add:
-    asl m0
-    rol m0 + 1
-    rol m0 + 2
-    dey
-    bne mul_loop
-
-    ldy #$03                    // product >>= 3 (the /8)
-div_loop:
-    lsr p0 + 2
-    ror p0 + 1
-    ror p0
-    dey
-    bne div_loop
-
-    lda vsign
-    bpl store
     sec                         // out = -product
     lda #$00
     sbc p0
@@ -808,20 +920,14 @@ div_loop:
     lda #$00
     sbc p0 + 1
     sta outhi, x
-    jmp done
-store:
-    lda p0
-    sta outlo, x
-    lda p0 + 1
-    sta outhi, x
 done:
 }
 
-// $0810 is not available any more: Nightshift.sid loads at $1000-$1d77 and
-// a PSID's player is not relocatable, so the code goes above the sprite
-// data instead. $2240-$3fff is free RAM in VIC bank 0 and the VIC never
-// fetches from it.
-* = $2240 "Main Code"
+// $0810 is not available: Nightshift.sid loads at $1000-$1d77 and a PSID's
+// player is not relocatable. $2000-$3fff is all ball frames (128 of them),
+// so the code goes above VIC bank 0 altogether, where the CPU sees plain
+// RAM and the VIC never looks.
+* = $4000 "Main Code"
 
 //------------------------------------------------------------------
 // Entry Point - one-time setup, then falls into main_loop
@@ -907,8 +1013,7 @@ clear_loop:
     sta seed + 1
 
     lda #$00                    // demo state: set AFTER the intro, because
-    sta swap_cool               // the intro's variables share these bytes
-    sta key_timer               // with the ball tables
+    sta key_timer               // the intro's variables share these bytes
     sta ball_key_timer
     ldx #SPARK_SLOTS - 1        // no sparks: after R, slots still burning
 !:  sta spark_timer, x          // from the last run would "restore" old
@@ -916,6 +1021,7 @@ clear_loop:
     bpl !-
     lda #SPEED_DEFAULT
     sta speed
+    jsr build_speed             // before init_sprites: easing rescales
 
     jsr init_stars              // scatter the background stars
     jsr draw_status             // status text + speed bar on row 24
@@ -973,8 +1079,11 @@ ml_wait:
     jsr update_input            // keyboard: speed level, ball count
     jsr rescale_some            // catch up after a speed change
     jsr update_sprites          // physics, edges, animation frame
-    jsr sort_balls              // ball_order ascending by Y
-    jsr check_collisions        // ball-to-ball contact, push apart
+    jsr check_collisions        // ball-to-ball contact, elastic exchange
+    jsr sort_balls              // ball_order ascending by Y - AFTER the
+                                // collisions, whose push apart can swap
+                                // two balls' order; build_list needs it
+                                // exact, check_collisions only nearly
     jsr build_list              // snapshot -> back write list, dl_ready=1
     jsr update_effects          // impact sparks, twinkling stars
     jsr update_sound            // age the ping cooldown
@@ -1587,18 +1696,18 @@ init_loop:
     sta ease_left, x
     jsr new_heading             // sets tvx/tvy
 
-    // Random spin phase so the balls don't all show the same frame.
-    jsr get_random
-    sta anim_hi, x
-    lsr                         // and the matching sprite frame, so the
-    lsr                         // first write list (built in init_mux,
-    lsr                         // BEFORE update_sprites) shows a ball,
-    and #$07                    // not whatever bytes sat in ball_ptr
-    clc
-    adc #SPRITE_PTR_BASE
-    sta ball_ptr, x
+    // Random roll phases so the balls don't all show the same frame.
     lda #$00
     sta anim_lo, x
+    sta animy_lo, x
+    jsr get_random
+    sta anim_hi, x
+    jsr get_random
+    sta animy_hi, x
+    jsr roll_frame              // and the matching sprite frame, so the
+                                // first write list (built in init_mux,
+                                // BEFORE update_sprites) shows a ball,
+                                // not whatever bytes sat in ball_ptr
 
     dex
     bpl init_loop
@@ -1686,30 +1795,46 @@ x_sign_pos:
 
     //---- 3a. X edge bounce ----
     // Left edge only matters when MSB is 0; right edge only when MSB is 1.
+    // The position is always clamped, but the velocity is only reflected
+    // if the ball is moving INTO the wall: a collision push can leave a
+    // ball past the edge while it is already heading back, and reflecting
+    // that would send it straight back into the wall.
     lda x_msb, x
     bne hard_right
     lda x_lo, x
     cmp #MIN_X
     bcs x_ok                    // x >= 22, fine
-    lda #MIN_X                  // clamp to 22 and bounce
+    lda #MIN_X                  // clamp to 22
     sta x_lo, x
+    lda #$00
+    sta x_frac, x
+    lda vx_hi, x
+    bpl x_ok                    // already moving right: no bounce
     jsr reverse_x
     jmp x_ok
 hard_right:
     lda x_lo, x
     cmp #MAX_X_LO
     bcc x_ok                    // x < 322, fine
-    lda #MAX_X_LO               // clamp to 322 and bounce
+    lda #MAX_X_LO               // clamp to 322
     sta x_lo, x
+    lda #$00
+    sta x_frac, x
+    lda vx_hi, x
+    bmi x_ok                    // already moving left: no bounce
     jsr reverse_x
 x_ok:
 
-    //---- 3b. Y edge bounce ----
+    //---- 3b. Y edge bounce, the same way ----
     lda y_pix, x
     cmp #MIN_Y
     bcs y_not_top
     lda #MIN_Y
     sta y_pix, x
+    lda #$00
+    sta y_frac, x
+    lda vy_hi, x
+    bpl y_ok                    // already moving down
     jsr reverse_y
     jmp y_ok
 y_not_top:
@@ -1717,13 +1842,18 @@ y_not_top:
     bcc y_ok
     lda #MAX_Y
     sta y_pix, x
+    lda #$00
+    sta y_frac, x
+    lda vy_hi, x
+    bmi y_ok                    // already moving up
     jsr reverse_y
 y_ok:
 
-    //---- 4. Spin animation ----
-    // anim += evx + evy (the distance actually moved this frame), so the
-    // roll rate follows the speed level. Moving right or down spins one
-    // way; left or up the other. The accumulator wraps naturally.
+    //---- 4. Roll ----
+    // Each axis has its own roll accumulator, advanced by the distance
+    // actually moved on that axis this frame - so the texture turns at
+    // exactly the speed a ball rolling without slipping would show, in
+    // the direction it moves, at every speed level. See sprite_gen.asm.
     clc
     lda anim_lo, x
     adc evx_lo, x
@@ -1732,28 +1862,56 @@ y_ok:
     adc evx_hi, x
     sta anim_hi, x
     clc
-    lda anim_lo, x
+    lda animy_lo, x
     adc evy_lo, x
-    sta anim_lo, x
-    lda anim_hi, x
+    sta animy_lo, x
+    lda animy_hi, x
     adc evy_hi, x
-    sta anim_hi, x              // A = anim_hi (whole pixels travelled)
-
-    lsr                         // /8: one frame per 8 pixels of travel
+    sta animy_hi, x
+    asl                         // roll_frame, inlined: it runs for every
+    asl                         // ball every frame
+    asl
+    and #(ROLL_Y_PHASES - 1) << 3
+    sta temp
+    lda anim_hi, x
     lsr
-    lsr
-    and #$07                    // frame 0..7
-    clc
-    adc #SPRITE_PTR_BASE        // block number = $80 + frame
-    sta ball_ptr, x              // this ball's LOGICAL pointer - the IRQ
-                                  // writes it to whichever hardware
-                                  // sprite the ball lands on
+    and #ROLL_X_PHASES - 1
+    ora temp
+    ora #SPRITE_PTR_BASE
+    sta ball_ptr, x
 
     dex
     bmi update_done
     jmp update_loop             // loop body > 128 bytes, so jmp not bne
 update_done:
     rts
+
+//------------------------------------------------------------------
+// roll_frame - ball_ptr[X] = the frame for X's two roll accumulators.
+//
+// X phase = bits 1-3 of anim_hi (one step per 2 px), Y phase = bits 0-3
+// of animy_hi (one step per 1 px); frame = Y phase * 8 + X phase, and the
+// 128 frames start at block $80, so the block number is just the frame
+// with bit 7 set. Preserves X and Y; uses temp.
+//------------------------------------------------------------------
+roll_frame:
+    lda anim_hi, x
+    lsr
+    and #ROLL_X_PHASES - 1
+    sta temp
+    lda animy_hi, x
+    asl
+    asl
+    asl
+    and #(ROLL_Y_PHASES - 1) << 3
+    ora temp
+    ora #SPRITE_PTR_BASE
+    sta ball_ptr, x             // this ball's LOGICAL pointer - the IRQ
+    rts                         // writes it to whichever hardware sprite
+                                // the ball lands on
+
+.errorif SPRITE_PTR_BASE != $80, "roll_frame ORs the frame into block $80"
+.errorif ROLL_X_PHASES * ROLL_Y_PHASES != 128, "roll_frame expects 8 x 16 frames"
 
 //------------------------------------------------------------------
 // scale_ball - evx/evy[X] = vx/vy[X] * speed / 8. Preserves X.
@@ -1768,6 +1926,72 @@ update_done:
 scale_ball:
     ScaleVel(vx_lo, vx_hi, evx_lo, evx_hi)
     ScaleVel(vy_lo, vy_hi, evy_lo, evy_hi)
+    rts
+
+//------------------------------------------------------------------
+// build_speed - fill ScaleVel's tables for the current speed level.
+//
+// SPD_FRAC[b] = round(b * speed / 8) and SPD_WHOLE[h] = h * speed * 32,
+// both in 1/256 px. Built by repeated addition of speed * 32 into a
+// 24-bit accumulator whose top two bytes are the entry (the low byte
+// starts at $80, which is the rounding). ~12000 cycles, so the frame the
+// speed changes on is shown twice - it is changing anyway.
+// Uses A/X, m0..m2, p0/p0+1.
+//------------------------------------------------------------------
+build_speed:
+    lda speed                   // p0 = speed * 32
+    lsr
+    lsr
+    lsr
+    sta p0 + 1
+    lda speed
+    asl
+    asl
+    asl
+    asl
+    asl
+    sta p0
+    lda #$80
+    sta m0
+    lda #$00
+    sta m0 + 1
+    sta m0 + 2
+    tax
+bsp_frac:
+    lda m0 + 1
+    sta SPD_FRAC_LO, x
+    lda m0 + 2
+    sta SPD_FRAC_HI, x
+    clc
+    lda m0
+    adc p0
+    sta m0
+    lda m0 + 1
+    adc p0 + 1
+    sta m0 + 1
+    bcc !+
+    inc m0 + 2
+!:  inx
+    bne bsp_frac
+
+    lda #$00                    // whole pixels: 0, s*32, 2*s*32, ...
+    sta m0
+    sta m0 + 1
+bsp_whole:
+    lda m0
+    sta SPD_WHOLE_LO, x
+    lda m0 + 1
+    sta SPD_WHOLE_HI, x
+    clc
+    lda m0
+    adc p0
+    sta m0
+    lda m0 + 1
+    adc p0 + 1
+    sta m0 + 1
+    inx
+    cpx #$08
+    bne bsp_whole
     rts
 
 rescale_some:
@@ -1787,15 +2011,17 @@ rsc_done:
 //------------------------------------------------------------------
 // reverse_x / reverse_y - bounce off a wall
 //
-// Flip the velocity on that axis. If the *target* still points into the
-// wall the easing would immediately drag the ball back, so flip the
-// target too when its sign disagrees with the new velocity. Fraction is
-// zeroed so the clamped position is exact. Each bounce fires a low ping
-// (throttled by the sound cooldown).
+// Flip the velocity on that axis: a perfectly elastic wall. If the
+// *target* still points into the wall the easing would immediately drag
+// the ball back, so flip the target too when its sign disagrees with the
+// new velocity. Each bounce fires a low ping that rings longer the faster
+// the ball hit (throttled by the sound cooldown).
 //------------------------------------------------------------------
 reverse_x:
-    lda #$00
-    sta x_frac, x
+    lda vx_lo, x                // how hard it hit: base speed into the
+    sta temp                    // wall, the same scale as a ball-to-ball
+    lda vx_hi, x                // hit's (check_pair), whatever the level
+    jsr ping_strength
     Negate16(vx_lo, vx_hi)
     Negate16(evx_lo, evx_hi)    // keep the cache in step (see ScaleVel)
     lda vx_hi, x
@@ -1807,8 +2033,10 @@ rx_done:
     jmp trigger_ping            // tail call
 
 reverse_y:
-    lda #$00
-    sta y_frac, x
+    lda vy_lo, x
+    sta temp
+    lda vy_hi, x
+    jsr ping_strength
     Negate16(vy_lo, vy_hi)
     Negate16(evy_lo, evy_hi)    // keep the cache in step (see ScaleVel)
     lda vy_hi, x
@@ -2090,8 +2318,9 @@ ui_change:
     cmp #SPEED_MAX + 1
     bcs ui_done                 // would go above the maximum
     sta speed
-    lda #MAX_BALLS              // every cached velocity is stale now;
-    sta rescale_n               // rescale_some catches up over 4 frames
+    jsr build_speed             // new multiply tables, then every cached
+    lda #MAX_BALLS              // velocity is stale: rescale_some catches
+    sta rescale_n               // up over 4 frames
     jmp draw_speed_bar          // tail call
 ui_done:
     rts
@@ -2205,19 +2434,14 @@ dbc_ones:
     rts
 
 //------------------------------------------------------------------
-// update_effects - once per frame: swap cooldown, impact sparks, twinkle
+// update_effects - once per frame: impact sparks, twinkle
 //
 // Each live spark slot is redrawn every frame so its color can cool from
 // white down through yellow and red. On the last frame the cell is put
 // back the way it was found, so a star underneath a spark survives.
 //------------------------------------------------------------------
 update_effects:
-    lda swap_cool
-    beq ue_sparks
-    dec swap_cool
-
     //---- Impact sparks: redraw, cool down, then erase ----
-ue_sparks:
     ldx #SPARK_SLOTS - 1
 ue_spark_loop:
     lda spark_timer, x
@@ -2276,18 +2500,29 @@ ue_done:
     rts
 
 //------------------------------------------------------------------
-// check_collisions - test candidate pairs and push touching ones apart
+// check_collisions - test candidate pairs and collide touching ones
 //
-// Walks ball_order (sorted ascending by y_pix, freshly built by
-// sort_balls this same frame - see there) from the top down. For outer
-// position i, the inner position j counts down from i-1, comparing
-// ball_order[i] against ball_order[j]. Since the list is Y-sorted,
-// ball_order[i]'s y_pix is never less than ball_order[j]'s, so
-// y_pix[i] - y_pix[j] is a valid unsigned distance that only GROWS as j
-// decreases - the moment it reaches BALL_DIAM (the individual-axis
-// touch limit check_pair itself applies to dy, see there), every
-// smaller j is at least as far away, so the whole inner loop breaks
-// rather than skipping just that one pair.
+// Walks ball_order (sorted ascending by y_pix by LAST frame's sort_balls
+// - see below) from the top down. For outer position i, the inner
+// position j counts down from i-1, comparing ball_order[i] against
+// ball_order[j]. Since the list is Y-sorted, y_pix[i] - y_pix[j] is an
+// unsigned distance that only GROWS as j decreases - the moment it
+// reaches BALL_DIAM (the individual-axis touch limit check_pair itself
+// applies to dy, see there), every smaller j is at least as far away, so
+// the whole inner loop breaks rather than skipping just that one pair.
+//
+// The order is one frame old: main_loop sorts AFTER this, so that the
+// push apart in check_pair cannot leave build_list an unsorted list, and
+// so that one sort a frame is enough (a second one, just for this, cost
+// more than a 16-ball frame had left). In one frame two balls move a few
+// pixels at most, so the list is out only where two balls are within a
+// few pixels in Y - there the subtraction borrows, and such a pair is
+// simply tested rather than taken as the end of the walk. A ball one
+// place up the stale list can also be a few px closer than its place
+// implies, so the walk can end a pair early; STALE_SLACK would end it
+// that many px later, but every px of it costs: measured at 16 balls,
+// 4 px nearly doubled the late frames and 12 px quintupled them. At 0, a
+// pair missed this way is simply caught at its next test.
 //
 // This turns the pair scan from unconditional O(n^2) into roughly O(n)
 // for balls that are actually scattered across the play field.
@@ -2299,17 +2534,23 @@ ue_done:
 // a touch is caught at worst one frame late, and while two balls still
 // overlap they are tested again two frames on.
 //
-// check_pair itself is unchanged: still called with X = ball A's
-// identity, Y = ball B's identity, exactly as when the loop visited
-// indices directly. Only how the pair is FOUND changed, not what
-// happens once one is.
+// Known limit: at speed 16 two balls both near VMAX can close by more
+// than a ball diameter between two tests of their pair (or a hit can be
+// deferred by MAX_HITS, or the pair missed by the stale order, while they
+// close), and then they pass through each other. It needs base speeds near 2 px a frame - the start-up
+// headings are at most 1.25 - so it is rare, and only at the top speeds.
+//
+// check_pair is called with X = ball A's identity and Y = ball B's;
+// the elastic collision itself is all in there.
 //------------------------------------------------------------------
 check_collisions:
+    lda #MAX_HITS
+    sta hit_count
     lda active_balls
     sec
     sbc #$01
-    sta sort_i                  // reusing sort_balls' scratch - it has
-    eor frame_count             // already done its job for this frame
+    sta sort_i                  // reusing sort_balls' scratch - it runs
+    eor frame_count             // after this, and starts afresh
     lsr                         // C = parity(i) != parity(frame)
     bcc cc_outer
     dec sort_i                  // start on this frame's parity
@@ -2338,10 +2579,12 @@ cc_inner:
     tax
     lda pair_ay
     sec
-    sbc y_pix, x                // A.y - B.y; never borrows, list is sorted
-    cmp #BALL_DIAM
+    sbc y_pix, x                // A.y - B.y
+    bcc cc_test                 // borrow: B is BELOW A - see below
+    cmp #BALL_DIAM + STALE_SLACK
     bcs cc_next_outer           // too far apart in Y already - and every
                                  // ball below this one only more so
+cc_test:
 
     ldx pair_a                  // X = ball A
     ldy temp                    // Y = ball B
@@ -2357,18 +2600,46 @@ cc_done:
     rts
 
 //------------------------------------------------------------------
-// check_pair - are balls X and Y touching? If so, separate them.
+// check_pair - are balls X and Y touching? If so, collide them.
 //
-// Computes dx = A.x - B.x (16-bit, since X is 9 bits) and dy = A.y - B.y,
-// remembers their signs in want_sx/want_sy (the direction A should move
-// to get away from B), then applies the distance test from the header.
-// On contact: push both balls apart, fire a ping, and (unless a swap
-// happened recently) swap the two body colors and throw off a spark.
+// A real collision between two equal balls, not a pair of sign flips:
 //
-// Note: "lda x_lo, y" assembles as absolute,Y ($0006,Y) because the
-// 6502 has no zero-page,Y mode for lda - it works, just 1 byte longer.
+//   1. dx = A.x - B.x and dy = A.y - B.y. Their signs go to want_sx /
+//      want_sy (the direction A has to move to get away from B), their
+//      magnitudes index COLL_TAB. A zero record means the centers are
+//      20 px or more apart: no contact (a true circle test).
+//   2. Overlap: both balls are pushed apart along the normal by the
+//      table's sepx/sepy (half the overlap each, capped), so they never
+//      sit inside each other.
+//   3. dot = (vA - vB) . n, the speed at which they close along the line
+//      between their centers (n points from B to A). dot >= 0 means they
+//      are already separating - a contact left over from last time, so
+//      nothing more happens. Otherwise they bounce:
+//
+//          vA -= dot * n        vB += dot * n
+//
+//      which for equal masses is exactly a perfectly elastic collision:
+//      the two balls swap the parts of their velocity along n and keep
+//      the parts across it. A head-on hit stops the striker dead and
+//      sends the other one off at its speed; a glancing one barely
+//      deflects either - the billiard-table behaviour, momentum and
+//      energy both conserved.
+//   4. The new base velocities are capped (VMAX_HI) and rescaled into
+//      the cached evx/evy, and the hit fires a ping that rings longer
+//      the harder it was, plus a spark at the point of contact.
+//
+// Step 3 is done on the BASE velocities with mul_vn - four 16 x 8 bit
+// multiplies - and costs ~1700 cycles with the rescale, so at most
+// MAX_HITS happen in one frame (hit_count); a pair beyond that is just
+// collided two frames later, when check_collisions comes back to it.
+//
+// Clobbers A/X/Y. check_collisions reloads its own registers after the
+// call, from pair_a, sort_i and sort_j - none of which this touches.
 //------------------------------------------------------------------
 check_pair:
+    stx save_x                  // ball A
+    sty col_b                   // ball B
+
     //---- dx = A.x - B.x, then |dx| ----
     sec
     lda x_lo, x
@@ -2388,10 +2659,10 @@ check_pair:
     sta temp2
 cp_dx_abs:
     lda temp2
-    bne cp_done                 // |dx| >= 256, far apart
+    bne cp_far                  // |dx| >= 256, far apart
     lda temp
     cmp #BALL_DIAM
-    bcs cp_done                 // |dx| >= 20, not touching
+    bcs cp_far                  // |dx| >= 20, not touching
 
     //---- dy = A.y - B.y, then |dy| ----
     lda #$00
@@ -2406,81 +2677,386 @@ cp_dx_abs:
     adc #$01
 cp_dy_abs:
     cmp #BALL_DIAM
-    bcs cp_done                 // |dy| >= 20, not touching
+    bcs cp_far                  // |dy| >= 20, not touching
+
+    //---- COLL_TAB record for (|dx|, |dy|) ----
+    tay
+    lda coll_row_lo, y          // row |dy|
+    sta ptr
+    lda coll_row_hi, y
+    sta ptr + 1
+    lda temp
+    asl                         // record |dx|: 8 bytes each
+    asl
+    asl
+    tay
+    lda (ptr), y
+    sta c_nx
+    iny
+    lda (ptr), y
+    sta c_ny
+    ora c_nx
+    bne cp_touch                // all zero: the circles do not meet
+cp_far:
+    rts
+cp_touch:
+    iny
+    lda (ptr), y
+    sta c_sepx
+    iny
+    lda (ptr), y
+    sta c_sepx + 1
+    iny
+    lda (ptr), y
+    sta c_sepy
+    iny
+    lda (ptr), y
+    sta c_sepy + 1
+
+    //---- 2. Push A away from B, then B away from A ----
+    ldx save_x
+    jsr nudge_ball
+    jsr flip_want
+    ldx col_b
+    jsr nudge_ball
+    jsr flip_want               // back to A's point of view
+
+    lda hit_count
+    bne cp_dot
+    rts                         // out of hits this frame: next time round
+cp_dot:
+
+    //---- 3. dot = (vA - vB) . n ----
+    ldx save_x
+    ldy col_b
+    sec
+    lda vx_lo, x
+    sbc vx_lo, y
+    sta mul_v
+    lda vx_hi, x
+    sbc vx_hi, y
+    sta mul_v + 1
+    lda c_nx
+    jsr mul_vn                  // (vA.x - vB.x) * |nx|
+    NegateZpIf(want_sx, mul_r)  // * the sign of nx
+    lda mul_r
+    sta c_dot
+    lda mul_r + 1
+    sta c_dot + 1
+
+    ldx save_x
+    ldy col_b
+    sec
+    lda vy_lo, x
+    sbc vy_lo, y
+    sta mul_v
+    lda vy_hi, x
+    sbc vy_hi, y
+    sta mul_v + 1
+    lda c_ny
+    jsr mul_vn                  // (vA.y - vB.y) * |ny|
+    NegateZpIf(want_sy, mul_r)
     clc
-    adc temp                    // |dx| + |dy|
-    cmp #BALL_SUM
-    bcs cp_done                 // corner region, circles do not overlap
+    lda c_dot
+    adc mul_r
+    sta c_dot
+    lda c_dot + 1
+    adc mul_r + 1
+    sta c_dot + 1
+    bmi cp_closing
+    rts                         // >= 0: moving apart already
+cp_closing:
+    dec hit_count
 
-    //---- Contact: push A away from B, then B away from A ----
-    jsr push_ball               // X = A, want_sx/want_sy already set
+    //---- dv = dot * n ----
+    lda c_dot
+    sta mul_v
+    lda c_dot + 1
+    sta mul_v + 1
+    lda c_nx
+    jsr mul_vn
+    NegateZpIf(want_sx, mul_r)
+    lda mul_r
+    sta c_dvx
+    lda mul_r + 1
+    sta c_dvx + 1
 
-    stx save_x
-    lda want_sx                 // B wants the opposite signs
-    eor #$ff
-    sta want_sx
-    lda want_sy
-    eor #$ff
-    sta want_sy
-    tya
-    tax                         // X = B
-    jsr push_ball
-    ldx save_x                  // restore X = A for the caller's loop
+    lda c_dot
+    sta mul_v
+    lda c_dot + 1
+    sta mul_v + 1
+    lda c_ny
+    jsr mul_vn
+    NegateZpIf(want_sy, mul_r)
+    lda mul_r
+    sta c_dvy
+    lda mul_r + 1
+    sta c_dvy + 1
 
+    //---- vA -= dv, vB += dv ----
+    ldx save_x
+    ldy col_b
+    sec
+    lda vx_lo, x
+    sbc c_dvx
+    sta vx_lo, x
+    lda vx_hi, x
+    sbc c_dvx + 1
+    sta vx_hi, x
+    sec
+    lda vy_lo, x
+    sbc c_dvy
+    sta vy_lo, x
+    lda vy_hi, x
+    sbc c_dvy + 1
+    sta vy_hi, x
+    clc
+    lda vx_lo, y
+    adc c_dvx
+    sta vx_lo, y
+    lda vx_hi, y
+    adc c_dvx + 1
+    sta vx_hi, y
+    clc
+    lda vy_lo, y
+    adc c_dvy
+    sta vy_lo, y
+    lda vy_hi, y
+    adc c_dvy + 1
+    sta vy_hi, y
+
+    //---- 4. Cap, rescale, and make some noise ----
+    jsr settle_ball             // X = A
+    ldx col_b
+    jsr settle_ball
+
+    // A graze (closing at under 3/32 px a frame) changes the velocities
+    // but stays silent, so two balls sliding past each other do not
+    // rattle off a burst of pings and sparks.
+    lda c_dot + 1
+    cmp #$ff
+    bne cp_loud
+    lda c_dot
+    cmp #$e8
+    bcs cp_quiet
+cp_loud:
+    lda c_dot
+    sta temp
+    lda c_dot + 1
+    jsr ping_strength           // ping_len from the closing speed
     jsr get_random              // hit pitch: $30 / $38 / $40 / $48
     and #$18
     clc
     adc #$30
     jsr trigger_ping
+    ldx save_x
+    ldy col_b
+    jsr spawn_spark             // ASCII spark at the point of contact
+cp_quiet:
+    rts
 
-    //---- Impact effects: swap body colors and throw off a spark ----
-    // Balls overlap for a few frames while separating; the cooldown
-    // makes sure the swap happens once per contact, not every frame.
-    lda swap_cool
-    bne cp_done
-    lda #SWAP_COOL
-    sta swap_cool
-    lda ball_color, x            // logical, per-ball color, not the
-    sta temp                      // hardware register - build_list picks
-    lda ball_color, y             // it up into next frame's write list
-    sta ball_color, x
-    lda temp
-    sta ball_color, y
-    jsr spawn_spark             // X = A (restored above), Y = B             // ASCII spark at the point of contact
-cp_done:
+// flip_want - point want_sx / want_sy the other way (A's view <-> B's).
+flip_want:
+    lda want_sx
+    eor #$ff
+    sta want_sx
+    lda want_sy
+    eor #$ff
+    sta want_sy
     rts
 
 //------------------------------------------------------------------
-// push_ball - force ball X's velocity and target to the wanted signs
-//
-// want_sx / want_sy hold $00 (positive) or $ff (negative). For each of
-// vx, tvx, vy, tvy: if bit 7 of the value differs from the wanted sign,
-// negate it. A value of exactly zero counts as positive; the easing
-// toward the (now correctly signed) target takes care of it.
+// nudge_ball - move ball X by (c_sepx, c_sepy), in the directions
+// want_sx / want_sy say ($00 = right/down, $ff = left/up), then clamp
+// it to the playfield. Velocity is not touched. Preserves X and Y.
 //------------------------------------------------------------------
-push_ball:
-    lda vx_hi, x
-    eor want_sx
-    bpl pb_vx_ok
-    Negate16(vx_lo, vx_hi)
-    Negate16(evx_lo, evx_hi)    // the cached scaled copy flips with it
-pb_vx_ok:
-    lda tvx_hi, x
-    eor want_sx
-    bpl pb_tvx_ok
-    Negate16(tvx_lo, tvx_hi)
-pb_tvx_ok:
-    lda vy_hi, x
-    eor want_sy
-    bpl pb_vy_ok
-    Negate16(vy_lo, vy_hi)
-    Negate16(evy_lo, evy_hi)
-pb_vy_ok:
-    lda tvy_hi, x
-    eor want_sy
-    bpl pb_tvy_ok
-    Negate16(tvy_lo, tvy_hi)
-pb_tvy_ok:
+nudge_ball:
+    lda want_sx
+    bmi nb_left
+    clc
+    lda x_frac, x
+    adc c_sepx
+    sta x_frac, x
+    lda x_lo, x
+    adc c_sepx + 1
+    sta x_lo, x
+    lda x_msb, x
+    adc #$00
+    jmp nb_x_msb
+nb_left:
+    sec
+    lda x_frac, x
+    sbc c_sepx
+    sta x_frac, x
+    lda x_lo, x
+    sbc c_sepx + 1
+    sta x_lo, x
+    lda x_msb, x
+    sbc #$00
+nb_x_msb:
+    and #$01
+    sta x_msb, x
+
+    lda want_sy
+    bmi nb_up
+    clc
+    lda y_frac, x
+    adc c_sepy
+    sta y_frac, x
+    lda y_pix, x
+    adc c_sepy + 1
+    sta y_pix, x
+    jmp nb_clamp
+nb_up:
+    sec
+    lda y_frac, x
+    sbc c_sepy
+    sta y_frac, x
+    lda y_pix, x
+    sbc c_sepy + 1
+    sta y_pix, x
+
+nb_clamp:                       // pushes are <= SEP_MAX, so nothing can
+    lda x_msb, x                // have wrapped: only the edges to check
+    bne nb_right
+    lda x_lo, x
+    cmp #MIN_X
+    bcs nb_x_ok
+    lda #MIN_X
+    sta x_lo, x
+    lda #$00
+    sta x_frac, x
+    jmp nb_x_ok
+nb_right:
+    lda x_lo, x
+    cmp #MAX_X_LO
+    bcc nb_x_ok
+    lda #MAX_X_LO
+    sta x_lo, x
+    lda #$00
+    sta x_frac, x
+nb_x_ok:
+    lda y_pix, x
+    cmp #MIN_Y
+    bcs nb_not_top
+    lda #MIN_Y
+    sta y_pix, x
+    lda #$00
+    sta y_frac, x
+    rts
+nb_not_top:
+    cmp #MAX_Y
+    bcc nb_done
+    lda #MAX_Y
+    sta y_pix, x
+    lda #$00
+    sta y_frac, x
+nb_done:
+    rts
+
+//------------------------------------------------------------------
+// settle_ball - after a collision changed ball X's base velocity: cap it
+// at VMAX_HI on each axis, stop any start-up easing (the target would
+// pull the ball back onto its old heading) and rescale the cached evx/evy.
+//------------------------------------------------------------------
+settle_ball:
+    ClampVel(vx_lo, vx_hi)
+    ClampVel(vy_lo, vy_hi)
+    lda #$00
+    sta ease_left, x
+    jmp scale_ball              // tail call
+
+//------------------------------------------------------------------
+// mul_vn - mul_r = mul_v * A / 128, rounded to nearest.
+//
+// mul_v is a signed 8.8 velocity, A a 0..128 normal component (128 =
+// 1.0). The magnitude is multiplied as two 8 x 8 products, low byte and
+// high byte, summed into 24 bits, +64 for the rounding, and shifted down
+// 7; then the sign is put back. Rounding the magnitude and restoring the
+// sign rounds both signs alike, so the errors do not add up one way.
+// Destroys mul_v; uses X, p0..p2.
+//------------------------------------------------------------------
+mul_vn:
+    sta mul_f
+    lda mul_v + 1
+    sta mul_sign
+    bpl mv_pos
+    sec                         // |mul_v|
+    lda #$00
+    sbc mul_v
+    sta mul_v
+    lda #$00
+    sbc mul_v + 1
+    sta mul_v + 1
+mv_pos:
+    lda mul_v                   // low byte * f
+    ldx mul_f
+    jsr mul8
+    clc
+    lda mul_res
+    adc #$40                    // + 0.5 after the /128
+    sta p0
+    lda mul_res + 1
+    adc #$00
+    sta p0 + 1
+    lda #$00
+    adc #$00
+    sta p0 + 2
+    lda mul_v + 1               // high byte * f, one byte up
+    ldx mul_f
+    jsr mul8
+    clc
+    lda p0 + 1
+    adc mul_res
+    sta p0 + 1
+    lda p0 + 2
+    adc mul_res + 1
+    sta p0 + 2
+    asl p0                      // /128 = *2 then drop the low byte
+    rol p0 + 1
+    rol p0 + 2
+    lda mul_sign
+    bpl mv_store
+    sec
+    lda #$00
+    sbc p0 + 1
+    sta mul_r
+    lda #$00
+    sbc p0 + 2
+    sta mul_r + 1
+    rts
+mv_store:
+    lda p0 + 1
+    sta mul_r
+    lda p0 + 2
+    sta mul_r + 1
+    rts
+
+//------------------------------------------------------------------
+// mul8 - mul_res = A * X, unsigned 8 x 8 -> 16 bits, ~45 cycles.
+//
+// Quarter squares (see physics_tables.asm): A is patched into the low
+// byte of four page-aligned table addresses, so the indexed loads read
+// sqr1[A + X] = (A + X)^2 / 4 and sqr2[255 - A + X] = (X - A)^2 / 4.
+// Self-modifying, which is fine: this all runs from RAM. Preserves X, Y.
+//------------------------------------------------------------------
+mul8:
+    sta mul8_a + 1
+    sta mul8_c + 1
+    eor #$ff
+    sta mul8_b + 1
+    sta mul8_d + 1
+    sec
+mul8_a:
+    lda sqr1_lo, x
+mul8_b:
+    sbc sqr2_lo, x
+    sta mul_res
+mul8_c:
+    lda sqr1_hi, x
+mul8_d:
+    sbc sqr2_hi, x
+    sta mul_res + 1
     rts
 
 //------------------------------------------------------------------
@@ -2634,8 +3210,9 @@ clear_sid:
     bpl clear_sid
     sta ping_cool
 
-    lda #$06                    // attack 0 (instant), decay 6 (~200 ms)
-    sta SID_V1_AD
+    lda #$06                    // attack 0 (instant), decay 6 (~200 ms);
+    sta SID_V1_AD               // trigger_ping rewrites the decay per hit
+    sta ping_len
     lda #$00                    // sustain 0, release 0: the decay is the whole note
     sta SID_V1_SR
     sta SID_FILTER_RES          // no resonance, voice 1 not routed to the filter
@@ -2645,12 +3222,16 @@ clear_sid:
     rts
 
 // trigger_ping - hit A on voice 1, unless a ping is still cooling down.
-// A = frequency high byte (higher = brighter ping). Uses only A and the
-// scratch byte, so callers can keep X = ball A and Y = ball B.
+// A = frequency high byte (higher = brighter ping); the decay comes from
+// ping_len (see ping_strength), so a hard hit rings on and a graze is a
+// short tick. Uses only A and the scratch byte, so callers can keep
+// X = ball A and Y = ball B.
 trigger_ping:
     sta ping_pitch
     lda ping_cool
     bne tp_done                 // too soon after the last one
+    lda ping_len                // attack 0, decay ping_len
+    sta SID_V1_AD
     lda ping_pitch
     sta SID_V1_FREQ_HI
     lda #$10                    // triangle, gate OFF: resets the envelope
@@ -2660,6 +3241,42 @@ trigger_ping:
     lda #PING_COOL
     sta ping_cool
 tp_done:
+    rts
+
+// ping_strength - ping_len = the decay for a hit at speed A:temp, a
+// signed 8.8 speed of either sign (A = high byte): 2 (48 ms, a tick) for
+// a graze up to 8 (300 ms, a ring) at 1.5 px a frame and up. Uses temp,
+// temp2; preserves X and Y.
+ping_strength:
+    bpl ps_pos
+    eor #$ff                    // |speed|, less 1/256 - near enough
+    pha
+    lda temp
+    eor #$ff
+    sta temp
+    pla
+ps_pos:
+    cmp #$02
+    bcs ps_max                  // 2 px a frame or more
+    asl
+    asl
+    sta temp2                   // whole px * 4
+    lda temp
+    lsr
+    lsr
+    lsr
+    lsr
+    lsr
+    lsr
+    ora temp2                   // speed in 1/4 px, 0..7
+    cmp #$06
+    bcc ps_set
+ps_max:
+    lda #$06
+ps_set:
+    clc
+    adc #$02
+    sta ping_len
     rts
 
 // update_sound - called once per frame. The ping's envelope runs in the
@@ -2704,11 +3321,8 @@ sprite_colors:                  // body color per ball (bit pair 10),
     .byte $04, $0a, $0e, $08    // there are only eight colors the sphere
                                  // shading (sprite_gen.asm) was tuned to
                                  // read well in, so balls 8-15 repeat 0-7.
-                                 // Multiplexing means two same-colored balls
-                                 // can now be on screen in different bands
-                                 // at once; that was already possible with
-                                 // collisions' color-swap before this, so
-                                 // nothing new relies on the 8 being unique.
+                                 // Each is the dark square of its checker;
+                                 // the light square is white ($d025).
 
 hw_bit:                         // bit n = hardware sprite n, for building
     .byte $01, $02, $04, $08    // VIC_SPRITE_ENABLE and VIC_SPRITE_X_MSB
@@ -2755,7 +3369,7 @@ twinkle_colors:                 // random star shades (mostly dim)
 // Star cell offsets into the screen (0..895), low and high bytes
 star_lo:    .fill STAR_COUNT, 0
 star_hi:    .fill STAR_COUNT, 0
-.errorif * > VIC_IDLE_FETCH, "Main Code has reached $3fff, which start zeroes"
+.errorif * > MUL_TABLES, "Main Code runs into the multiply tables"
 
 //------------------------------------------------------------------
 // Sprite graphics - 8 shaded ball frames at $2000,
@@ -2778,3 +3392,10 @@ star_hi:    .fill STAR_COUNT, 0
 // It started out in Main Code's spare RAM; that ran out first.
 //------------------------------------------------------------------
 #import "intro_raster.asm"
+
+//------------------------------------------------------------------
+// The physics lookup tables: quarter-square multiply tables just above
+// Main Code ($5c00) and the collision table above the overture ($7400).
+//------------------------------------------------------------------
+#import "physics_tables.asm"
+.errorif COLL_TAB + BALL_DIAM * BALL_DIAM * 8 + 2 * BALL_DIAM > BALL_STATE, "the collision table runs into BALL_STATE"

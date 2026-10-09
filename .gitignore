@@ -9,5 +9,6 @@
 /mystuff/scroller/bin
 .DS_Store
 
-# Skills are symlinks into the sibling 6502-skills repo (absolute paths)
-.claude/skills/
+
+# Packaged skill bundles
+*.skill

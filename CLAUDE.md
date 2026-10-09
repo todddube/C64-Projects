@@ -41,6 +41,21 @@ Tell subagents explicitly to target NTSC.
 alias kickass='java -jar /Applications/KickAssembler/KickAss.jar'
 ```
 
+## Shared Standards and 6502 Skills
+
+Everything C64/6502 that more than one project uses lives in this repo:
+
+| Path | What it is |
+|---|---|
+| `C64-Standards/include/` | KickAssembler includes shared across projects: `c64_constants.asm` (VIC/SID/CIA/KERNAL labels), `zeropage.asm` (zero-page allocation). Import relative to the source file, e.g. `#import "../C64-Standards/include/c64_constants.asm"` from a project folder |
+| `.claude/c64-reference/` | Hardware/assembler reference docs and the review checklist (see below) |
+| `skills/` | The five `6502-*` Agent Skills: `6502-instruction-set`, `6502-memory-map`, `6502-merlin-assembler`, `6502-sweet16`, `6502-to-rust`. Vendored from github.com/sunsided/6502-skills (commit `8d425e8`) |
+
+The skills are installed **globally** as symlinks from `~/.claude/skills/` into `skills/`,
+so they load in every session (this repo, `tetris.c64`, anywhere) and edits here take
+effect everywhere. To reinstall on a new machine: `skills/install.sh --claude`. Don't
+also install them into this repo's `.claude/skills/`: the same skill would be listed twice.
+
 ## C64 Reference Docs and Review Agent
 
 `.claude/c64-reference/` holds the hardware and assembler references this repo reviews
@@ -227,9 +242,9 @@ Binary: `/Applications/regenerator/regenerator2000`
 1. **c64_lessons/**: Progressive tutorials. `lesson01`..`lesson10b` each have a `main.asm` (07/08/09/10b also `#import` their local `memorymap.asm` + `charset_1.asm`); no external dependencies. `lesson11` is the exception — no `main.asm`, just standalone `step_1_`..`step_4_` / `optimized-step4.asm` files showing incremental sprite development
 2. **kickass_examples/**: The official KickAssembler example projects (scripting, PSID import, Koala import, libraries, ...)
 3. **demos/**: Standalone demo sources (`demo1.asm`, `plasma_190.asm`) plus reference `.prg`/`.d64` files that are *not* built from source
-4. **spritemove/** (`main.asm`): 4-16 physics-driven multicolor ball sprites (default 8, `B`/`SHIFT+B`; past 8 a raster IRQ multiplexes them over the VIC's 8 sprites), starfield, ASCII impact sparks and SID ping SFX. It opens with a text-mode raster bar overture, then the title as sprite labels on plain black, a pause, and vertical raster bars (color-RAM columns under a screen of solid blocks) sweeping sideways while the labels float on damped springs toward random targets, joined by luminance fades, set to `Nightshift.sid`. All demo logic is in `main.asm`, heavily commented — read its header before editing. It imports six data/sequence files, none buildable on their own: `intro.asm` (the opening sequence), `intro_raster.asm` (the overture), `intro_sprites.asm` (the label sprites and sine table; pulls in `intro_text.asm`, glyph rows from the character ROM), `music.asm` (PSID import) and `sprite_gen.asm` (the ray-shaded ball frames).
-   **Its code segment starts at `$2240`, not the usual `$0810`** — a PSID player is not relocatable and Nightshift loads at `$1000-$1d77`. The whole intro runs in bank 0 text mode on the demo's own screen; the label sprites sit at `$0c00`. It detects NTSC/PAL at start-up: the tune is held at PAL tempo on NTSC (`music_tick`) and intro phase counters use `BeatDec` so they stay on the beat
-5. **scroller/** (`scroller.asm`): Raster bars + scroller + SID music. **Depends on the sibling repo `C64-Standards`** — imports are written `../../C64-Standards/include/...`, resolved relative to `scroller/`, i.e. `Github/C64-Standards/include/` (`c64_constants.asm`, `zeropage.asm`) — it must be checked out next to this repo or the build fails on `#import`
+4. **spritemove/** (`main.asm`): 4-16 rolling checkered "Boing" ball sprites with elastic billiard-style collisions (default 8, `B`/`SHIFT+B`; past 8 a raster IRQ multiplexes them over the VIC's 8 sprites), starfield, ASCII impact sparks and SID ping SFX. It opens with a text-mode raster bar overture, then the title as sprite labels on plain black, a pause, and vertical raster bars (color-RAM columns under a screen of solid blocks) sweeping sideways while the labels float on damped springs toward random targets, joined by luminance fades, set to `Nightshift.sid`. All demo logic is in `main.asm`, heavily commented — read its header before editing. It imports seven data/sequence files, none buildable on their own: `intro.asm` (the opening sequence), `intro_raster.asm` (the overture), `intro_sprites.asm` (the label sprites and sine table; pulls in `intro_text.asm`, glyph rows from the character ROM), `music.asm` (PSID import), `sprite_gen.asm` (128 ray-shaded rolling-ball frames filling `$2000-$3fff`) and `physics_tables.asm` (quarter-square multiply tables and the collision-normal table).
+   **Its code segment starts at `$4000`, not the usual `$0810`** — a PSID player is not relocatable and Nightshift loads at `$1000-$1d77`, and the 128 ball frames fill `$2000-$3fff`. The whole intro runs in bank 0 text mode on the demo's own screen; the label sprites sit at `$0c00`. It detects NTSC/PAL at start-up: the tune is held at PAL tempo on NTSC (`music_tick`) and intro phase counters use `BeatDec` so they stay on the beat
+5. **scroller/** (`scroller.asm`): Raster bars + scroller + SID music. Imports the shared standards from this repo's `C64-Standards/include/` (`c64_constants.asm`, `zeropage.asm`) as `../C64-Standards/include/...`
 6. **Galactic Rasterbar/**: Reverse-engineering project. `*_disasm.asm` / `*_todd.asm` are Regenerator 2000 output in **64tass syntax** (`;` comments, `label = $xxxx`), not KickAssembler — re-export with `--assembler kick` before building with KickAss. Original binary is in `orig/`
 
 ### Standard Assembly Structure
@@ -464,13 +479,6 @@ lda (ptr),y
 - CIA2: `$DD00-$DDFF`
 
 ## Common Build Errors
-
-### Missing import (scroller)
-```
-Error: File not found: ../../C64-Standards/include/c64_constants.asm
-```
-The `C64-Standards` repo is not cloned beside this one. Clone it to
-`/Users/todddube/Documents/Github/C64-Standards` or inline the needed constants.
 
 ### Branch Too Far
 When loops exceed 127 bytes, relative branches fail with:
