@@ -1,0 +1,20 @@
+//------------------------------------------------------
+//------------------------------------------------------
+//         Kick Assembler v5.25 by Mads Nielsen         
+//------------------------------------------------------
+//------------------------------------------------------
+Output dir: /Users/todddube/Documents/Github/C64-Projects/scroller/bin
+parsing
+flex pass 1
+flex pass 2
+flex pass 3
+Output pass
+  
+  SID Data
+  --------
+  location=$1000
+  init=$1d70
+  play=$1003
+  name=Nightshift
+  author=Ari Yliaho (Agemixer)
+Writing prg file: scroller.prg
