@@ -6,7 +6,8 @@
 //              over copper bars, to Nightshift by Agemixer.
 // TARGET:      NTSC 6567R8 first (17095 cycles/frame), PAL second.
 // START-UP:    black, a raster wipe down to blue, a pause, a wipe back up
-//              to black (scroller_intro.asm), then the demo.
+//              to black (scroller_intro.asm), then the demo. The border is
+//              black throughout.
 // EXIT:        RUN/STOP resets to BASIC. RESTORE is ignored.
 // CREATED:     2026-10-09 by RetroDubTRVA
 //==============================================================================
@@ -158,14 +159,15 @@ BasicUpstart2(start)
 .label in_lines       = $33             // $33-$34: raster lines per frame
 .label in_last        = $35             // $35-$36: in_lines - 4
 .label in_pos         = $37             // $37-$38: wipe edge, lines from top
-.label in_off         = $39             // $39-$3a: border_at's target
-.label in_col         = $3b             // border_at's color
-.label in_plo         = $3c             // border_at: line before the target
+.label in_off         = $39             // $39-$3a: color_at's target
+.label in_col         = $3b             // color_at's color
+.label in_plo         = $3c             // color_at: line before the target
 .label in_phi         = $3d             //   (bit 8 as $d011 bit 7)
 .label in_alo         = $3e             //   and the target's low byte
 .label in_cnt         = $3f
 .label in_i           = $40
 .label raster_max     = $41             // detect_video: highest line, low byte
+.label in_dir         = $42             // intro_sfx: 0 wipe down, 1 wipe up
 
 //==============================================================================
 // MAIN CODE
@@ -224,11 +226,11 @@ start:
     sta $01
 
     jsr init_charsets
-    jsr init_screen
     jsr init_vars               // clears $10-$30, so before detect_video
     jsr detect_video
-    jsr init_stars
     jsr intro                   // black, wipe to blue, pause, wipe to black
+    jsr init_screen             // after the intro, which blanks the screen
+    jsr init_stars
 
     lda #music.startSong - 1
     ldx #$00

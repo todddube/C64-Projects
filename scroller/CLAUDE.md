@@ -17,8 +17,10 @@ conventions. This file covers only what is specific to this project.
   bars. Nightshift (Agemixer) plays throughout.
 
 It opens with a start-up wipe (`scroller_intro.asm`): black, a raster wipe down to solid
-blue with a light-blue/white glow edge, a ~2.5 s pause, a wipe back up to black, then the
-demo. RUN/STOP resets to BASIC, during the wipe as well.
+blue with a light-blue/white glow edge (inside a black border), a ~1.7 s pause, a wipe
+back up to black, then the demo. The wipe has sound: two detuned saws swell in on black and rise with the first
+wipe, and a filtered-noise whoosh closes with the second. RUN/STOP resets to BASIC,
+during the wipe as well.
 
 ## Build and run
 
@@ -59,15 +61,22 @@ character ROM in `start`. `exit_demo` sets `$37` back before `jmp ($fffc)`.
 
 ## Start-up wipe
 
-`intro` runs from `start` after `detect_video` and before `music.init`, with interrupts off
-and DEN off, so the whole screen is border color and there are no badlines. Every color
-change is a polled `$d020` write. `border_at` waits for the line before its target on all
-9 bits, then for the target's low byte, so the write lands at cycle ~6-13. Lines count
-from `INTRO_TOP` (16) mod the frame's line count, which comes from `raster_max` (stored by
-`detect_video`), so the wipe crosses line 0 on NTSC, where lines 0-12 are the bottom
-border. The glow stripes are 3 lines apart because the gap from one write to
-`border_at`'s first poll is ~130 cycles, which leaves only about half a line spare. It
-uses zero page `$33-$41`, which nothing else touches.
+`intro` runs from `start` after `detect_video` and before `init_screen` and `music.init`,
+with interrupts off and no sprites. The border stays black: the wipe is drawn in `$d021`
+over a screen of `BLANK` chars, so it only shows inside the display window (lines 51-250).
+Every color change is a polled `$d021` write. `color_at` waits for raster bit 8, then
+catches the line before its target and the target in two 7-cycle loops, so the write
+lands at cycle 6-12, before a badline stalls the CPU (the `irq_bars` trick). Don't add a
+cycle to the target loop. A write that early shows on the last 7 pixels of the line above,
+so the intro runs in 38 columns (`$d016=$00`) and the right border hides them. Lines count from `INTRO_TOP` (16)
+mod the frame's line count, which comes from `raster_max` (stored by `detect_video`).
+`in_pos` sweeps `WIPE_FROM`..`WIPE_TO`, the edge's range across the window.
+
+The glow stripes are 4 lines apart because the gap from one write to `color_at`'s first
+poll is ~130 cycles, plus 40 when a badline falls in it. `intro_sfx` runs right after the
+top-of-frame write, which is why the first stripe is 5 lines down. The intro uses zero
+page `$33-$42`, which nothing else touches, uses the SID freely and `sid_clear`s it
+before `music.init`, and turns the display back off (`$0b`) when it ends.
 
 ## Frame structure
 
