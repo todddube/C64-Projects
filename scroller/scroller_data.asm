@@ -245,8 +245,8 @@ scroll_text:
     .text "press run/stop to exit ...   "
     .text "greetings to everyone still coding on the breadbin!"
     .text "   ... " + DEMO_NAME + " - " + DEMO_DATE
-    .text "                              "
-    .byte $ff
+    .text "                                        "   // 40: the screen
+    .byte $ff                                               // is empty at the end
 
 //==============================================================================
 // SPRITE ART ($3200-$33ff), generated at assembly time

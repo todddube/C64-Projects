@@ -8,6 +8,11 @@
 // START-UP:    black, a raster wipe down to blue, a pause, a wipe back up
 //              to black (scroller_intro.asm), then the demo. The border is
 //              black throughout.
+// SEQUENCE:    STARDUST runs until its scroll text has gone by once, then a
+//              curtain wipe (wipe.asm) closes it and ARCADE (arcade.asm)
+//              plays for ~30 s; another wipe, and STARDUST again, forever.
+//              Every wipe picks its direction and colors at random. The
+//              music never stops: between parts irq_idle plays it.
 // EXIT:        RUN/STOP resets to BASIC. RESTORE is ignored.
 // CREATED:     2026-10-09 by RetroDubTRVA
 //==============================================================================
@@ -43,11 +48,14 @@
 //
 // MEMORY
 //   $0400-$07ff  screen + sprite pointers
+//   $0800-$0fff  ARCADE charset                      (built at start-up)
 //   $1000-$1d77  Nightshift (PSID, not relocatable; uses zero page $f8/$f9)
+//   $1e00-$1fff  STAR_SINK: a covered star row draws here (and $f200-$f3ff)
 //   $2000-$27ff  main charset: blank + star glyphs   (built at start-up)
 //   $2800-$2fff  DYCP charset: 40 columns x 6 chars  (drawn every frame)
 //   $3000-$31ff  logo letter sprites                 (built at start-up)
 //   $3200-$33ff  planet x4, ship, flame x2, moon     (assembled in)
+//   $3400-$3ebf  ARCADE sprites                      (assembled in)
 //   $4000-       code and tables
 //   KERNAL and BASIC are banked out ($01 = $35); the IRQ and NMI vectors
 //   are the hardware ones at $fffe/$fffa.
@@ -84,10 +92,13 @@ BasicUpstart2(start)
 .const DYCP_ROW       = 19              // first scroller row
 .const DYCP_ROWS      = 6               // 48 lines of wave room
 .const BLANK          = $00             // blank in BOTH charsets
+.const SD_EDGE        = $fe             // the wipe's chars, in both charsets
+.const SD_SOLID       = $ff             // (the DYCP charset uses 1-240)
 .const STAR_CHAR      = $40             // $40-$7f: dot at pixel row v, column k
                                         // = STAR_CHAR + v * 8 + k
 .const TWINKLE_BIG    = $80
 .const TWINKLE_SMALL  = $81
+.label STAR_SINK      = $1e00           // see sd_lock_stars
 
 // Raster lines
 .const LINE_TOP       = 30
@@ -152,6 +163,7 @@ BasicUpstart2(start)
 .label irq_y          = $2c
 .label overruns       = $2d             // frames whose work missed line 251
 .label prof_max       = $2e             // latest line the work has ended on
+.label text_done      = $2f             // the scroll text has gone by once
 .label px             = $30             // $30-$31: planet x
 .label py             = $32             // planet y
 
@@ -168,6 +180,23 @@ BasicUpstart2(start)
 .label in_i           = $40
 .label raster_max     = $41             // detect_video: highest line, low byte
 .label in_dir         = $42             // intro_sfx: 0 wipe down, 1 wipe up
+
+// ARCADE (arcade.asm) uses $43-$67. The wipe (wipe.asm) uses these:
+.label w_on          = $68              // 0 off, 1 wiping, 2 all black
+.label w_dir         = $69              // 0 down, 1 up
+.label w_pos         = $6a              // lines covered so far
+.label w_drawn       = $6b              // the last d painted ($ff: none)
+.label w_lock_lo     = $6c              // covered rows, inclusive
+.label w_lock_hi     = $6d
+.label w_c0          = $6e              // glow colors, brightest first
+.label w_c1          = $6f
+.label w_c2          = $70
+.label w_edge        = $71              // the part's EDGE and SOLID codes
+.label w_solid       = $72
+.label w_g1          = $73              // $73-$74: EDGE glyph, charset 1
+.label w_g2          = $75              // $75-$76: EDGE glyph, charset 2
+.label w_val         = $77
+.label w_tmp         = $78
 
 //==============================================================================
 // MAIN CODE
@@ -222,20 +251,61 @@ start:
     sta $01
     jsr build_font
     jsr build_logo
+    jsr build_arc_font
     lda #$35                    // RAM + I/O, BASIC and KERNAL out
     sta $01
 
     jsr init_charsets
     jsr init_vars               // clears $10-$30, so before detect_video
     jsr detect_video
+    jsr wipe_reset
+    jsr arc_reset_score
     jsr intro                   // black, wipe to blue, pause, wipe to black
-    jsr init_screen             // after the intro, which blanks the screen
-    jsr init_stars
 
     lda #music.startSong - 1
     ldx #$00
     ldy #$00
     jsr music.init
+
+    // From here on the music always plays from a raster IRQ: the parts'
+    // own chains, and irq_idle while the display is off between them.
+    lda #<irq_idle
+    sta $fffe
+    lda #>irq_idle
+    sta $ffff
+    lda #LINE_TOP
+    sta VIC_RASTER
+    lda #$0b                    // display still off, raster bit 8 = 0
+    sta VIC_CTRL1
+    lda #$01
+    sta VIC_IRQ_ENABLE
+    sta VIC_IRQ_STATUS
+    cli
+
+//------------------------------------------------------------------------------
+// stardust_enter: (re)starts STARDUST with the display off and irq_idle
+// running - from start, and from ARCADE after its wipe
+//------------------------------------------------------------------------------
+stardust_enter:
+    sei                         // irq_idle's music_tick reads ntsc and
+    lda ntsc                    // music_div; init_vars clears $10-$30,
+    pha                         // which holds them (and seed)
+    lda music_div
+    pha
+    lda seed
+    pha
+    jsr init_vars
+    pla
+    sta seed
+    pla
+    sta music_div
+    pla
+    sta ntsc
+    cli
+    jsr wipe_reset
+    jsr init_charsets
+    jsr init_screen
+    jsr init_stars
 
     // Shadows for the first frame, before the first IRQ reads them
     jsr advance_scroll
@@ -255,13 +325,20 @@ start:
     lda #PLANET_LIGHT
     sta VIC_SPRITE_MC1
 
+    jsr part_sync               // display on from the next frame
+    sei
     lda #LINE_TOP
     sta VIC_RASTER
+    lda #<irq_top
+    sta $fffe
+    lda #>irq_top
+    sta $ffff
     lda #$1b                    // display on, 25 rows, raster bit 8 = 0
     sta VIC_CTRL1
     lda #$01
-    sta VIC_IRQ_ENABLE
     sta VIC_IRQ_STATUS
+    lda #$00
+    sta frame_flag
     cli
 
 //------------------------------------------------------------------------------
@@ -276,10 +353,35 @@ main_loop:
     jsr advance_scroll
     jsr update_logo
     jsr update_mid
-    jsr draw_dycp
+    lda w_on
+    bne ml_wipe
+    lda text_done               // the text has gone by: close the part.
+    beq !+                      // The scroller is all spaces, so the
+    jsr sd_wipe_start           // wipe's first rows (~1300 cycles) take
+    jsr build_bars              // draw_dycp's place, and fit the frame
+    jsr update_stars
+    jmp ml_tail
+!:  jsr draw_dycp
     jsr build_bars
     jsr update_stars
     jsr update_twinkle
+    jmp ml_tail
+
+    // While the curtain falls the scroller is all spaces, so draw_dycp
+    // (~5300 cycles) is skipped, which pays for the wipe. Twinkles stop;
+    // stars in covered rows draw into STAR_SINK.
+ml_wipe:
+    jsr build_bars
+    jsr wipe_step
+    bcc !+
+    jsr part_blackout           // all black: on to ARCADE
+    ldx #20
+    jsr wait_frames
+    jmp arcade_enter
+!:  jsr sd_lock_stars
+    jsr update_stars
+
+ml_tail:
     jsr check_exit
     inc frame_count
 
@@ -645,6 +747,49 @@ init_charsets:
     sta MAIN_CHARSET + TWINKLE_BIG * 8, x
     dex
     bpl !-
+
+    lda #$ff                    // the wipe's SOLID, in both charsets
+    ldx #$07
+!:  sta MAIN_CHARSET + SD_SOLID * 8, x
+    sta DYCP_CHARSET + SD_SOLID * 8, x
+    dex
+    bpl !-
+    rts
+
+//------------------------------------------------------------------------------
+// sd_wipe_start: the curtain over STARDUST. The EDGE glyph lives in both
+// charsets, because rows 17-24 are shown with the DYCP one.
+//------------------------------------------------------------------------------
+sd_wipe_start:
+    lda #SD_EDGE
+    sta w_edge
+    lda #SD_SOLID
+    sta w_solid
+    lda #<(MAIN_CHARSET + SD_EDGE * 8)
+    sta w_g1
+    lda #>(MAIN_CHARSET + SD_EDGE * 8)
+    sta w_g1 + 1
+    lda #<(DYCP_CHARSET + SD_EDGE * 8)
+    sta w_g2
+    lda #>(DYCP_CHARSET + SD_EDGE * 8)
+    sta w_g2 + 1
+    jmp wipe_start
+
+//------------------------------------------------------------------------------
+// sd_lock_stars: a star whose row the curtain covers is pointed at
+// STAR_SINK, so update_stars keeps running it but draws into spare RAM
+// ($1e00-$1fff, and $f200-$f3ff for its color) instead of the curtain.
+// Costs nothing outside the wipe; init_stars points them back.
+//------------------------------------------------------------------------------
+sd_lock_stars:
+    ldx #NUM_STARS - 1          // star x is on row x
+!:  txa
+    jsr row_locked
+    bcc !+
+    lda #>STAR_SINK
+    sta star_hi, x
+!:  dex
+    bpl !--
     rts
 
 //------------------------------------------------------------------------------
@@ -868,6 +1013,7 @@ shift_text:
     lda (text_ptr), y
     cmp #$ff                    // end marker: start the text again
     bne st_char
+    inc text_done               // and tell the main loop it has run once
     lda #<scroll_text
     sta text_ptr
     lda #>scroll_text
@@ -1284,7 +1430,11 @@ exit_demo:
     jmp ($fffc)
 
 #import "scroller_intro.asm"
-#import "scroller_data.asm"
+#import "wipe.asm"
+#import "arcade.asm"
+#import "arcade_data.asm"
+#import "scroller_data.asm"         // ends with the sprite art at $3200
+#import "arcade_sprites.asm"        // $3400, right after it
 
 //==============================================================================
 // SID MUSIC DATA
