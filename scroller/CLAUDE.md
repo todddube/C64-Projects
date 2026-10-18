@@ -3,8 +3,8 @@
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
 This is the `scroller/` project inside the C64-Projects repo. The repo-root `CLAUDE.md`
-covers the toolchain, the NTSC-first policy, the `c64-reviewer` agent and the demo
-conventions. This file covers only what is specific to this project.
+and the c64-agent-kit skills cover the toolchain, the NTSC-first policy, the
+`c64-reviewer` agent and the demo conventions. This file covers only what is specific to this project.
 
 ## What it is
 
@@ -205,7 +205,7 @@ These are measured with VICE on NTSC:
 The main loop's work ends by line ~183 on NTSC, against `irq_bars` at 192, which is only
 about 9 lines of slack. Anything added per frame has to be paid for somewhere else.
 
-Two debug counters can be checked with `vice_peek.py --mem 002d 002e`:
+Two debug counters can be checked with `c64.py peek bin/scroller.prg --seconds S --mem 002d 002e` (the `c64-toolchain` skill):
 - `overruns` (`$2d`) counts frames whose work ran past `irq_bars`. It must stay 0.
 - `prof_max` (`$2e`) is the latest raster line the work has ended on.
 

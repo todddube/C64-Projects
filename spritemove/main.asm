@@ -112,7 +112,8 @@
 //                collision scratch
 //   $00f8-$00f9  zero page: Nightshift's player (traced: nothing else)
 //   $0314-$0315  IRQ vector -> mux_irq during the demo
-//   $0318-$0319  NMI vector -> nmi_ignore (RESTORE does nothing)
+//   $0318-$0319  NMI vector -> NMI_RTI (RESTORE does nothing)
+//   $0347        NMI_RTI: one rti byte, in the unused tape buffer
 //   $0400-$07e7  text screen: stars, status rows 23-24 (the sprite
 //                pointers live at $07f8-$07ff inside the same 1K block)
 //   $0801        BASIC stub "10 SYS 16384"  (16384 = $4000)
@@ -961,9 +962,20 @@ start:
     // start, on top of the zero page we have overwritten. Taking the NMI
     // vector is what actually stops it; the kernal is banked in, so $0318
     // is the vector it uses.
-    lda #<nmi_ignore
-    sta NMI_VECTOR
-    lda #>nmi_ignore
+    //
+    // One store, not two: a RESTORE press between writing the low and the
+    // high byte would jump to a half-written address. The rti sits at
+    // $0347, whose low byte matches the kernal default vector ($fe47), so
+    // only the high byte changes. ($0347 is in the tape buffer, which
+    // nothing here uses; the rti is written before the vector points at it.)
+    lda #$40                    // rti
+    sta NMI_RTI
+    lda NMI_VECTOR              // a freezer cartridge (Action Replay, FC3,
+    cmp #<NMI_RTI               // Retro Replay - the Ultimate II+ can be
+    beq !+                      // one) may have moved the vector: then fix
+    lda #<NMI_RTI               // the low byte too and accept the short
+    sta NMI_VECTOR              // two-store window
+!:  lda #>NMI_RTI
     sta NMI_VECTOR + 1
 
     jsr detect_video            // NTSC or PAL: tune tempo, overture band
@@ -1415,28 +1427,34 @@ bl_done:
 
 
 //------------------------------------------------------------------
-// nmi_ignore - swallow every NMI.
+// NMI_RTI ($0347) - swallow every NMI.
 //
-// $0318 points here, so RESTORE (alone or with RUN/STOP) reaches an rti
+// $0318 points there, so RESTORE (alone or with RUN/STOP) reaches an rti
 // instead of the kernal's handler, which would otherwise run the stop-key
 // scan over our zero page and warm-start BASIC. RUN/STOP on its own is
 // unaffected: that is a keyboard matrix read in check_exit, not an NMI.
 //------------------------------------------------------------------
-nmi_ignore:
-    rti
+.label NMI_RTI = $0347
+.errorif (<NMI_RTI) != $47, "NMI_RTI must share the kernal vector's low byte $47"
 
 //------------------------------------------------------------------
 // detect_video - ntsc = nonzero on an NTSC machine. Interrupts off.
 //
 // Runs the raster up into its 9th bit (lines 256+) and keeps the highest
 // low byte it sees there: an NTSC 6567R8 tops out at line $106 (low byte
-// 6; the older R56A at 4), a PAL 6569 at $137 (low byte $37). Anything
+// 6; the older R56A at 5), a PAL 6569 at $137 (low byte $37). Anything
 // under $20 is NTSC. The max is kept, not the last value read, because
 // the raster can wrap to line 0 between reading $d012 and testing bit 8.
 //------------------------------------------------------------------
 detect_video:
     lda #$00
     sta ntsc                    // scratch: the highest low byte seen
+    // Start below line 256, so tracking always begins at line $100.
+    // Entered in the last cycles of PAL line $137, the bpl below would
+    // pass at once and see only line 0 - and call a PAL machine NTSC.
+dv_below:
+    bit VIC_CONTROL1
+    bmi dv_below
 dv_wait:
     bit VIC_CONTROL1            // bit 7 = raster bit 8
     bpl dv_wait                 // wait for line 256+

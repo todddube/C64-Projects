@@ -210,7 +210,7 @@ al_tail:
     jsr check_exit
     inc frame_count
     lda frame_flag              // the next frame already started: the
-    beq arc_loop                // work overran (read with vice_peek)
+    beq arc_loop                // work overran (read with c64.py peek)
     inc overruns
     jmp arc_loop
 

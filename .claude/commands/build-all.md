@@ -1,22 +1,20 @@
 # Build all C64 projects in the repository
 
-Kick Assembler reads `/Applications/KickAssembler/KickAss.cfg` automatically on every one of these builds (it sits beside the jar). If every project suddenly fails to build, check that file before anything else — a bad option there breaks all of them at once.
+Find every project from the repo root. A project is a directory containing `main.asm`, or a
+directory with no `main.asm` but exactly one top-level `.asm` file (e.g.
+`scroller/scroller.asm`). Skip `bin/`, `Libs/`, `C64-Standards/` and files that are only
+`#import`ed by another file. `c64_lessons/lesson11/`, `demos/` and `Galactic Rasterbar/`
+are not auto-buildable.
 
-Find every project recursively from the repo root. A project is a directory containing `main.asm`, or a directory with no `main.asm` but exactly one top-level `.asm` file (e.g. `scroller/scroller.asm`). Build each with KickAssembler:
+Build each, sequentially, with the `c64-toolchain` skill:
 
 ```
-java -jar /Applications/KickAssembler/KickAss.jar <source>.asm -odir bin 2>&1 | tee bin/buildlog.txt | grep -vE '^//|^parsing$|^flex pass|^Output pass$|^Output dir:|^$|^ +(Music:|init |\$)'
+python3 ~/.claude/skills/c64-toolchain/scripts/c64.py build <dir>/<source>.asm
 ```
 
-The global `/Applications/KickAssembler/KickAss.cfg` is empty (no `-showmem`, no `-symbolfile`), and the grep strips the banner and pass lines, so a clean build prints only `Writing prg file: <name>.prg`; anything else printed is an error or warning. The full unfiltered output is always in `bin/buildlog.txt`. Never add `-showmem`, `-symbolfile`, `-debug` or `-bytedump` unless asked for that one build.
+A non-zero exit status means the build failed. Then show a summary table:
+Project path | Status (✓ / ✗) | Output .prg or error summary. For failures, show the full
+error and identify the problem.
 
-Output is `bin/<source>.prg`. Do not pass `-symbolfile`.
-
-Steps:
-1. Use `find . -name "main.asm"` to locate projects, then `find . -maxdepth 2 -name "*.asm"` to catch single-file projects without a `main.asm` (skip `bin/`, `Libs/` and files that are only `#import`ed by another file)
-2. For each project directory, create `bin/` if needed, then run KickAssembler
-3. Collect results — show a summary table:
-   - Project path | Status (✓ / ✗) | Output .prg or error summary
-4. For any failures, show the full error and identify the problem
-
-Run builds sequentially (not in parallel) so output is readable.
+If *every* project fails at once, check `KickAss.cfg` beside `KickAss.jar` first (options
+take a value after a space: `-libdir .`).

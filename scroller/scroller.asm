@@ -385,7 +385,7 @@ ml_tail:
     jsr check_exit
     inc frame_count
 
-    // Profiling, read with vice_peek: the latest line the work has ended
+    // Profiling, read with c64.py peek: the latest line the work has ended
     // on, and how many frames ran past the next irq_bars.
     lda VIC_RASTER
     cmp prof_max
