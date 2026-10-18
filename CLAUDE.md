@@ -25,8 +25,9 @@ The **`c64-reviewer`** subagent (`~/.claude/agents/c64-reviewer.md`) runs the
 (STATIC by default, MEASURED, or FOLLOW-UP), at most ~1000 lines of source, and "target
 NTSC". `spritemove/agent_recomm.md` has the timing data behind those limits.
 
-The `6502-*` skills (instruction set, memory map, Merlin, SWEET16, 6502-to-Rust) are
-symlinked from a clone of github.com/sunsided/6502-skills at `~/Documents/Github/6502-skills`.
+The `6502-*` skills (instruction set, memory map, Merlin, SWEET16, 6502-to-Rust) come with
+the kit too: github.com/sunsided/6502-skills is a submodule at `vendor/6502-skills`, and the
+kit's installer links them into `~/.claude/skills/`.
 
 Fix general C64 knowledge in the kit (and push it), not here. This file holds only what is
 specific to this repository.
