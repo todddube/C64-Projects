@@ -13,7 +13,8 @@
 // Three fixes over the original, each commented where it lives:
 // IRQ moved to line 20 (line 0 is inside the sprite on NTSC), the
 // stale raster latch is cleared before cli, and the 9-bit X wrap no
-// longer blanks the ship at x=256. Known tutorial quirk kept as-is:
+// longer blanks the ship at x=256. SPACE or RUN/STOP exits by restoring
+// the system and returning to BASIC (no reset). Known tutorial quirk kept as-is:
 // the side-border colour switch in sub_color_cycle.asm never runs,
 // because the colour run hits black before column 40 every frame.
 //

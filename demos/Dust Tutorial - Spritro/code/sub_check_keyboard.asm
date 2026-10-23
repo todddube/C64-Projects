@@ -40,12 +40,10 @@ go_down:        lda $d001
                 inc $d001           // sprite down
                 rts
 
-// The original jumped to $ea81 from inside a JSR, which unwinds the
-// stack wrongly and leaves the raster IRQ installed. A reset through
-// the KERNAL vector is the clean way back to BASIC.
-exit_to_basic:  lda #$00
-                sta $d015           // turn off all sprites
-                sta $d01a           // no more raster IRQs
-                jmp ($fffc)         // reset to BASIC
+// Tell the main loop to shut the intro down (see main.asm); the
+// original jumped to $ea81 from inside this JSR, which cannot work.
+exit_to_basic:  lda #$01
+                sta exit_flag
+                rts
 
 skip:           rts                 // leave the Y coordinate alone

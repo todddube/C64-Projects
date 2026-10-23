@@ -6,6 +6,10 @@
 main:     sei                       // disable interrupts
 
           jsr clear_screen          // clear the screen
+          lda $80                   // the player's init uses $80 as a temp,
+          sta saved_80              // which is inside BASIC's CHRGET: keep it
+          lda #$00
+          sta exit_flag
           jsr init_sid              // init music routine
           jsr write_text            // write three lines of text
 
@@ -48,9 +52,52 @@ main:     sei                       // disable interrupts
           sta $d020
 
           cli                       // enable interrupts
-          jmp *                     // infinite loop, everything runs in the IRQ
+wait_exit: lda exit_flag            // everything runs in the IRQ; the main
+          beq wait_exit             // loop only waits for SPACE / RUN/STOP
+
+//=============================
+// back to BASIC: undo everything the intro changed, then rts
+// returns through the SYS to the READY prompt. The original
+// jumped to $ea81 from inside a JSR, which cannot work, and a
+// jmp ($fffc) reset misbehaves with freezer cartridges.
+//=============================
+          sei
+          lda #$00
+          sta $d015                 // sprites off
+          sta $d01a                 // raster IRQ off
+          sta $d418                 // SID volume off
+          lda #$01
+          sta $d019                 // acknowledge any pending raster IRQ
+          lda #$81
+          sta $dc0d                 // CIA#1 timer A IRQ back on (KERNAL jiffy/keyboard)
+          lda #<$ea31               // stock KERNAL IRQ and NMI vectors
+          ldx #>$ea31
+          sta $0314
+          stx $0315
+          lda #<$fe47
+          ldx #>$fe47
+          sta $0318
+          stx $0319
+          lda #$1b                  // stock VIC: 25 rows, ROM charset, hires
+          sta $d011
+          lda #$c8
+          sta $d016
+          lda #$15
+          sta $d018
+          lda #$0e                  // light blue border, blue screen
+          sta $d020
+          lda #$06
+          sta $d021
+          lda saved_80
+          sta $80                   // repair CHRGET
+          jsr $e544                 // clear the screen
+          cli
+          rts                       // back to BASIC READY
 
 nmi:      rti
+
+exit_flag: .byte 0
+saved_80:  .byte 0
 
 //================================
 // the custom interrupt routine
