@@ -1,8 +1,8 @@
 // PLASMA - a very multi-colour 40x25 character plasma for the Commodore 64
 // by RetroDubTRVA. KickAssembler v5.x.
 //
-// Build: python3 ~/.claude/skills/c64-toolchain/scripts/c64.py build main.asm
-// Run:   python3 ~/.claude/skills/c64-toolchain/scripts/c64.py run bin/main.prg
+// Build: python3 ~/.claude/skills/c64-toolchain/scripts/c64.py build plasma.asm
+// Run:   python3 ~/.claude/skills/c64-toolchain/scripts/c64.py run bin/plasma.prg
 //
 // Grew out of plasma_190, a 190-byte size-coded plasma that drew four
 // shades of one colour; its annotated source is the appendix at the end

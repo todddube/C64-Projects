@@ -9,4 +9,4 @@ flex pass 1
 flex pass 2
 flex pass 3
 Output pass
-Writing prg file: main.prg
+Writing prg file: plasma.prg
