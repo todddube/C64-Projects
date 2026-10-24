@@ -1,6 +1,6 @@
 //============================================================
 // point the VIC at the custom charset, turn off multicolour
-// characters, then output four lines of text
+// characters, then output five lines of text (the tutorial had three)
 //============================================================
 
 write_text:     lda $d018
@@ -16,8 +16,10 @@ loop_text:      lda line1,x         // copy 40 chars of each line
                 lda line2,x
                 sta $0478,x         // row 3
                 lda line3,x
-                sta $0770,x         // row 22
+                sta $0720,x         // row 20 (the tutorial put it on 22)
                 lda line4,x
+                sta $0770,x         // row 22 (added)
+                lda line5,x
                 sta $07c0,x         // row 24 (added)
                 inx
                 cpx #$28

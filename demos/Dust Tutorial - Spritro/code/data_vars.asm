@@ -40,3 +40,6 @@ sfx_pew_timer:    .byte 0         // SID registers are write-only, so the
 sfx_pew_freq:     .byte 0         // sweeping frequencies are shadowed here
 sfx_boom_timer:   .byte 0
 sfx_boom_freq:    .byte 0
+
+ntsc:             .byte 0         // 1 on NTSC, 0 on PAL (detect_video in main.asm)
+music_div:        .byte 5         // NTSC: counts the frames between skipped play calls

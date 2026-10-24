@@ -9,14 +9,17 @@ main:     sei                       // disable interrupts
           lda #$00
           sta exit_flag
           jsr init_objects          // ship state, timers, random seed
+          jsr detect_video          // NTSC or PAL, for the music tempo
+          jsr sfx_init              // silence the SID, volume up
 .if (PLAY_MUSIC) {
-          lda $80                   // the player's init uses $80 as a temp,
-          sta saved_80              // which is inside BASIC's CHRGET: keep it
+          lda $f8                   // Nightshift's player uses $f8/$f9 (the
+          sta saved_f8              // KERNAL's RS-232 pointers): keep them
+          lda $f9                   // for the return to BASIC
+          sta saved_f9
+          lda #$00                  // subtune 0
           jsr init_sid              // init music routine
-} else {
-          jsr sfx_init              // the effects own the SID (config_symbols.asm)
 }
-          jsr write_text            // write four lines of text
+          jsr write_text            // write five lines of text
 
           lda #$00                  // animation delay flag, EORed with 1 each frame
           sta delay_animation_pointer
@@ -51,8 +54,11 @@ main:     sei                       // disable interrupts
                                     // The frame's work must finish before the
                                     // beam reaches the sprites at line 50 and the
                                     // text at 58: colour RAM is written first,
-                                    // sprites next; measured under full load it
-                                    // all ends by about raster line 40
+                                    // sprites next; measured under full load
+                                    // that is done by about raster line 38 and
+                                    // the music call starts there (32-38),
+                                    // ending by about line 65 (NTSC); nothing
+                                    // visual follows it
           lda $d011
           and #$7f                  // raster compare bit 8 = 0
           sta $d011
@@ -101,8 +107,10 @@ wait_exit: lda exit_flag            // everything runs in the IRQ; the main
           lda #$06
           sta $d021
 .if (PLAY_MUSIC) {
-          lda saved_80
-          sta $80                   // repair CHRGET
+          lda saved_f8
+          sta $f8
+          lda saved_f9
+          sta $f9
 }
           jsr $e544                 // clear the screen
           cli
@@ -111,7 +119,56 @@ wait_exit: lda exit_flag            // everything runs in the IRQ; the main
 nmi:      rti
 
 exit_flag: .byte 0
-saved_80:  .byte 0
+saved_f8:  .byte 0
+saved_f9:  .byte 0
+
+//=============================
+// NTSC or PAL: with interrupts off, wait for raster bit 8 ($d011
+// bit 7), then keep the highest $d012 low byte seen until the
+// raster wraps. PAL reaches $37 (line 311), NTSC only $06 (262).
+// (From the c64-demo-framework skill template.)
+//=============================
+detect_video:
+          lda #$00
+          sta ntsc                  // scratch: highest low byte seen
+!:        bit $d011
+          bmi !-                    // wait until below line 256
+!:        bit $d011
+          bpl !-                    // wait for line 256+
+!track:   lda $d012
+          cmp ntsc
+          bcc !+
+          sta ntsc
+!:        bit $d011
+          bmi !track-               // until the raster wraps to line 0
+          lda ntsc
+          ldx #$00
+          cmp #$20
+          bcs !+                    // PAL
+          inx                       // NTSC
+!:        stx ntsc
+          lda #$05
+          sta music_div
+          rts
+
+//=============================
+// Nightshift is a 50 Hz tune. On NTSC the frame IRQ runs 60 times
+// a second, so every sixth call is skipped (5 in 6 = 49.9 Hz) and
+// the tune keeps its tempo; on PAL it plays every frame.
+//=============================
+music_tick:
+.if (PLAY_MUSIC) {
+          lda ntsc
+          beq !+                    // PAL: every frame
+          dec music_div
+          bpl !+                    // 5, 4, 3, 2, 1, 0: play
+          lda #$05                  // -1: the sixth frame, skip it
+          sta music_div
+          rts
+!:        jmp play_sid
+} else {
+          rts
+}
 
 //=============================
 // one-time setup of the objects added to the tutorial
@@ -154,12 +211,10 @@ irq:      dec $d019                 // acknowledge the raster IRQ
           jsr update_rockets        // rockets fly left
           jsr update_asteroids      // rocks drift right
           jsr check_collisions      // walls, rockets vs rocks, rocks vs ship
-.if (PLAY_MUSIC) {
-          jsr play_sid              // play music
-} else {
-          jsr sfx_update            // sweep the sound effects
-}
-          jsr check_keyboard        // keyboard / joystick controls
+          jsr check_keyboard        // keyboard / joystick controls (writes
+                                    // sprite registers, so before the music)
+          jsr music_tick            // the tune, at 50 Hz on both standards
+          jsr sfx_update            // then the effects, over the tune's voices
 
 //=============================
 // open the top/bottom borders

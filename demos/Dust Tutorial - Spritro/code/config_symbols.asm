@@ -4,8 +4,8 @@
 
 .label screen_ram      = $0400          // screen RAM
 .label sprite_pointers = screen_ram + $3f8   // the 8 sprite pointers ($07f8-$07ff)
-.label init_sid        = music.init     // music init ($11ed)
-.label play_sid        = music.play     // music play ($1004)
+.label init_sid        = music.init     // music init (Nightshift: $1d70)
+.label play_sid        = music.play     // music play (Nightshift: $1003)
 .label delay_counter   = $90            // times the border colour switch
 .label pra             = $dc00          // CIA#1 port A
 .label prb             = $dc01          // CIA#1 port B
@@ -13,22 +13,21 @@
 .label ddrb            = $dc03          // CIA#1 data direction B
 
 //============================================================
-// Music or sound effects: the tutorial's empty_1000.sid is
-// 4-Mat's "Empty (512 bytes)", a player with no notes in it, and
-// its play routine still rewrites every SID register each frame,
-// which would silence the sound effects. So by default the
-// effects own the SID and the player is only kept in memory.
-// Set this to true to hear a real tune dropped into
-// resources/empty_1000.sid instead (init and play are then
-// called as in the tutorial and the effects are left out).
+// Music: Nightshift (config_resources.asm) plays under the sound
+// effects. Its player rewrites the voices' frequency and control
+// bytes each frame, so sub_sfx.asm re-asserts its two voices after
+// each play call for as long as an effect lasts (the tune loses
+// that voice meanwhile).
+// Set this to false to run with the effects only, as the tutorial's
+// silent empty_1000.sid did.
 //============================================================
-.const PLAY_MUSIC = false
+.const PLAY_MUSIC = true
 
 //============================================================
 // Gameplay constants (added to the tutorial)
 //============================================================
 
-// No zero page beyond the tutorial's $fb/$fc: BASIC and the KERNAL
+// No zero page beyond the tutorial's $fb/$fc/$90: BASIC and the KERNAL
 // stay banked in and we return to BASIC, and $03-$06 (the first
 // "free" bytes) are really BASIC's USR vectors. Scratch bytes live
 // in data_vars.asm instead (tmp1, tmp2, controls, coll_*).

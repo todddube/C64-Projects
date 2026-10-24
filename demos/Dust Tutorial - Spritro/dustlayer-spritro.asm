@@ -18,9 +18,9 @@
 // (KickAssembler names the .prg after the source file).
 //
 // What the tutorial did: a tumbling ship sprite flies right to left
-// over four lines of colour-cycled text in a custom font, with the
+// over three lines of colour-cycled text in a custom font, with the
 // top and bottom borders opened, the IRQ chained into the KERNAL's.
-// U and D move the ship.
+// U and D moved the ship.
 //
 // What was added (each in its own code/sub_*.asm, see the IRQ in
 // code/main.asm for the per-frame order):
@@ -32,8 +32,12 @@
 //     rockets against rocks, rocks against the ship;
 //     explosion animation, screen flash, respawn with a
 //     blinking invulnerable spell                       (sub_collisions)
-//   - SID sound effects for launches and explosions     (sub_sfx)
-//   - joystick port 2 next to the keys                  (sub_check_keyboard)
+//   - SID sound effects for launches and explosions,
+//     laid over the music                               (sub_sfx)
+//   - music: "Nightshift" by Agemixer (Ari Yliaho, 2001),
+//     held at its 50 Hz tempo on NTSC                   (music_tick in main)
+//   - cursor keys (CRSR down, SHIFT+CRSR up) replace U/D,
+//     joystick port 2 next to them                      (sub_check_keyboard)
 //   - RUN/STOP exits to BASIC (SPACE used to)
 //
 // Fixes over the original, each commented where it lives: the stale
@@ -45,15 +49,18 @@
 //
 // Memory map (as in the tutorial, plus the added shapes):
 //   $0801  BASIC loader (SYS 49152)
-//   $1001  SID tune (empty_1000.sid loads at $1001; init $11ed, play $1004;
-//          kept in memory but not played, see PLAY_MUSIC in config_symbols)
+//   $1000  Nightshift.sid, $1000-$1d77 (init $1d70, play $1003); the
+//          tutorial's silent empty_1000.sid stays in resources/, unused.
+//          PLAY_MUSIC in config_symbols.asm turns the tune off
 //   $2000  16 ship sprite frames (16 x 64 bytes, pointers $80-$8f)
 //   $2400  flame, rocket, asteroid and explosion shapes (pointers $90-$9a)
 //   $3800  custom charset (48 chars from rambo_font.ctm)
 //   $c000  code
 //
 // Target: NTSC first (frame IRQ at raster line 0, borders opened at 249),
-// PAL works unchanged. Zero page: only $fb/$fc, as in the tutorial.
+// PAL works unchanged; the video standard is detected at start-up for
+// the music tempo. Zero page: $fb/$fc and $90 as in the tutorial, plus
+// $f8/$f9 inside the music player (saved and restored around the run).
 //
 // Build: python3 ~/.claude/skills/c64-toolchain/scripts/c64.py build dustlayer-spritro.asm
 //============================================================

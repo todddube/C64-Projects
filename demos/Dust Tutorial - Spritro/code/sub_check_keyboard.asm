@@ -1,12 +1,15 @@
 //============================================================
 // Controls, read straight from the CIA#1 keyboard matrix as in
 // the tutorial, plus joystick port 2:
-//   U / joystick up      ship up
-//   D / joystick down    ship down
-//   SPACE / fire button  launch a rocket   (the tutorial's SPACE exited)
-//   RUN/STOP             back to BASIC
-// The presses are gathered into 'controls' (bit 0 up, bit 1 down,
-// bit 4 fire) and acted on afterwards, so key and stick combine.
+//   CRSR down / joystick down        ship down
+//   SHIFT + CRSR (up) / joystick up  ship up
+//   SPACE / fire button              launch a rocket (the tutorial's SPACE exited)
+//   RUN/STOP                         back to BASIC
+// (The tutorial used U and D.) The C64 has one vertical cursor
+// key, CRSR down, with SHIFT giving up, exactly as in BASIC; both
+// shift keys count. The presses are gathered into 'controls'
+// (bit 0 up, bit 1 down, bit 4 fire) and acted on afterwards, so
+// key and stick combine.
 //============================================================
 
 check_keyboard:     lda #%11111111      // CIA#1 port A: output (rows)
@@ -21,28 +24,34 @@ check_space:        lda #%01111111      // select row 7
                     lda prb             // load column information
                     sta tmp1
                     and #%10000000      // bit 7 = RUN/STOP: exit
-                    beq exit_to_basic
-                    lda tmp1
+                    bne !+
+                    jmp exit_to_basic   // (too far for a branch now)
+!:                  lda tmp1
                     and #%00010000      // bit 4 = SPACE: fire
-                    bne check_d
+                    bne check_cursor
                     lda #%00010000
                     sta controls
 
-check_d:            lda #%11111011      // select row 2
+check_cursor:       lda #%11111110      // select row 0
                     sta pra
                     lda prb
-                    and #%00000100      // 'd' key
-                    bne check_u
-                    lda controls
+                    and #%10000000      // bit 7 = CRSR down/up key
+                    bne check_joystick  // not pressed
+                    lda #%11111101      // select row 1
+                    sta pra
+                    lda prb
+                    and #%10000000      // bit 7 = left SHIFT
+                    beq cursor_up
+                    lda #%10111111      // select row 6
+                    sta pra
+                    lda prb
+                    and #%00010000      // bit 4 = right SHIFT
+                    beq cursor_up
+                    lda controls        // unshifted: down
                     ora #%00000010
                     sta controls
-
-check_u:            lda #%11110111      // select row 3
-                    sta pra
-                    lda prb
-                    and #%01000000      // 'u' key
-                    bne check_joystick
-                    lda controls
+                    bne check_joystick  // (always: bit 1 is set)
+cursor_up:          lda controls        // shifted: up
                     ora #%00000001
                     sta controls
 
@@ -55,9 +64,9 @@ check_joystick:     lda #%11111111      // no row selected: port A now reads
                     sta controls
 
 #if AUTOFIRE
-                    lda controls           // test builds (-define AUTOFIRE) hold
+                    lda controls        // test builds (-define AUTOFIRE) hold
                     ora #%00010001      // fire and up, so rockets, hits and
-                    sta controls           // the top wall can be checked in VICE
+                    sta controls        // the top wall can be checked in VICE
 #endif
                     lda ship_state      // no steering while exploding
                     cmp #SHIP_EXPLODING
@@ -66,7 +75,7 @@ check_joystick:     lda #%11111111      // no row selected: port A now reads
                     and #%00000001
                     beq !+
                     dec $d001           // sprite up (the walls stop it,
-!:                  lda controls           // see sub_collisions.asm)
+!:                  lda controls        // see sub_collisions.asm)
                     and #%00000010
                     beq !+
                     inc $d001           // sprite down
