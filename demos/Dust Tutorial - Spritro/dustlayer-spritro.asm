@@ -8,8 +8,13 @@
 // timers for the colour cycle, relocating the SID).
 //
 // KickAssembler port for the RetroDubTRVA C64-Projects repo.
-// The original ACME source (index.asm, the zip) was written for
-// the "dust" tool; this file replaces index.asm as the entry point.
+// index.asm beside this file is the original ACME index, kept verbatim
+// for reference (ACME syntax, it does not build with KickAssembler; the
+// pristine tutorial zip is here too). This file is its KickAssembler
+// equivalent and the build entry point: it loads the same resources to
+// the same addresses and imports code/*.asm in the same order, and it is
+// named so the output is bin/dustlayer-spritro.prg, the name index.asm's
+// "!to" line gives (KickAssembler names the .prg after the source file).
 // Three fixes over the original, each commented where it lives:
 // IRQ moved to line 20 (line 0 is inside the sprite on NTSC), the
 // stale raster latch is cleared before cli, and the 9-bit X wrap no
@@ -20,12 +25,12 @@
 //
 // Memory map (as in the tutorial):
 //   $0801  BASIC loader (SYS 49152)
-//   $1000  SID tune (empty_1000.sid, init $11ed, play $1004)
+//   $1001  SID tune (empty_1000.sid loads at $1001; init $11ed, play $1004)
 //   $2000  16 ship sprite frames (16 x 64 bytes)
 //   $3800  custom charset (48 chars from rambo_font.ctm)
 //   $c000  code
 //
-// Build: python3 ~/.claude/skills/c64-toolchain/scripts/c64.py build main.asm
+// Build: python3 ~/.claude/skills/c64-toolchain/scripts/c64.py build dustlayer-spritro.asm
 //============================================================
 
 #import "code/config_resources.asm"
