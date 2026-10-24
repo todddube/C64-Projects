@@ -6,12 +6,17 @@
 main:     sei                       // disable interrupts
 
           jsr clear_screen          // clear the screen
-          lda $80                   // the player's init uses $80 as a temp,
-          sta saved_80              // which is inside BASIC's CHRGET: keep it
           lda #$00
           sta exit_flag
+          jsr init_objects          // ship state, timers, random seed
+.if (PLAY_MUSIC) {
+          lda $80                   // the player's init uses $80 as a temp,
+          sta saved_80              // which is inside BASIC's CHRGET: keep it
           jsr init_sid              // init music routine
-          jsr write_text            // write three lines of text
+} else {
+          jsr sfx_init              // the effects own the SID (config_symbols.asm)
+}
+          jsr write_text            // write four lines of text
 
           lda #$00                  // animation delay flag, EORed with 1 each frame
           sta delay_animation_pointer
@@ -38,10 +43,16 @@ main:     sei                       // disable interrupts
           sta $0314                 // $0314/$0315
           stx $0315
 
-          lda #$14                  // trigger the interrupt at raster line 20:
-          sta $d012                 // the original used line 0, which on NTSC is
-                                    // inside the ship sprite (Y=$ff wraps past
-                                    // line 262), so its registers changed mid-draw
+          lda #$00                  // trigger the interrupt at raster line 0,
+          sta $d012                 // as the original did. That broke once the
+                                    // ship sat at Y=$ff (on NTSC that sprite wraps
+                                    // past line 262 and was mid-draw at line 0),
+                                    // but now no sprite goes below the bottom wall.
+                                    // The frame's work must finish before the
+                                    // beam reaches the sprites at line 50 and the
+                                    // text at 58: colour RAM is written first,
+                                    // sprites next; measured under full load it
+                                    // all ends by about raster line 40
           lda $d011
           and #$7f                  // raster compare bit 8 = 0
           sta $d011
@@ -53,7 +64,7 @@ main:     sei                       // disable interrupts
 
           cli                       // enable interrupts
 wait_exit: lda exit_flag            // everything runs in the IRQ; the main
-          beq wait_exit             // loop only waits for SPACE / RUN/STOP
+          beq wait_exit             // loop only waits for RUN/STOP
 
 //=============================
 // back to BASIC: undo everything the intro changed, then rts
@@ -66,6 +77,7 @@ wait_exit: lda exit_flag            // everything runs in the IRQ; the main
           sta $d015                 // sprites off
           sta $d01a                 // raster IRQ off
           sta $d418                 // SID volume off
+          sta $c6                   // drop keys the KERNAL buffered while we ran
           lda #$01
           sta $d019                 // acknowledge any pending raster IRQ
           lda #$81
@@ -88,8 +100,10 @@ wait_exit: lda exit_flag            // everything runs in the IRQ; the main
           sta $d020
           lda #$06
           sta $d021
+.if (PLAY_MUSIC) {
           lda saved_80
           sta $80                   // repair CHRGET
+}
           jsr $e544                 // clear the screen
           cli
           rts                       // back to BASIC READY
@@ -99,20 +113,59 @@ nmi:      rti
 exit_flag: .byte 0
 saved_80:  .byte 0
 
+//=============================
+// one-time setup of the objects added to the tutorial
+//=============================
+init_objects:
+          lda #SHIP_FLYING
+          sta ship_state
+          lda #$00
+          sta ship_timer
+          sta flash_timer
+          sta flame_timer
+          sta fire_cooldown
+          sta rocket_active
+          sta rocket_active + 1
+          sta sfx_pew_timer
+          sta sfx_boom_timer
+          ldx #$03
+!:        sta ast_state,x
+          dex
+          bpl !-
+          lda #$01                  // first rock on the first frame
+          sta ast_spawn_timer
+          lda $dc04                 // CIA#1 timer A low byte: a different
+          ora #$01                  // seed every run (never 0)
+          sta rnd_seed
+          rts
+
 //================================
-// the custom interrupt routine
+// the custom interrupt routine, once per frame at raster line 0
 //================================
 
 irq:      dec $d019                 // acknowledge the raster IRQ
+                                    // colour RAM first, while the beam is in
+                                    // the top border, then the sprite registers
+                                    // before it reaches the sprites at line 50:
           jsr color_cycle           // colour cycle on the text
+          jsr flash_update          // white screen flash after a crash
+          jsr update_ship           // move / animate / explode the ship
+          jsr update_flame          // exhaust follows it
+          jsr update_rockets        // rockets fly left
+          jsr update_asteroids      // rocks drift right
+          jsr check_collisions      // walls, rockets vs rocks, rocks vs ship
+.if (PLAY_MUSIC) {
           jsr play_sid              // play music
-          jsr update_ship           // move the ship
-          jsr check_keyboard        // keyboard controls
+} else {
+          jsr sfx_update            // sweep the sound effects
+}
+          jsr check_keyboard        // keyboard / joystick controls
 
 //=============================
 // open the top/bottom borders
 //=============================
 
+irq_work_done:                      // (a label to measure the frame's work at)
           lda #$00                  // clear potential garbage in $3fff
           sta $3fff
 
@@ -132,4 +185,8 @@ irq:      dec $d019                 // acknowledge the raster IRQ
           ora #$08
           sta $d011
 
-          jmp $ea31                 // continue with the KERNAL IRQ routine
+          jmp $ea81                 // KERNAL IRQ exit: restore registers, rti.
+                                    // The original went through $ea31 (jiffy
+                                    // clock, keyboard scan); nothing here needs
+                                    // those, and their ~20 raster lines after
+                                    // line 255 held up the next frame's IRQ

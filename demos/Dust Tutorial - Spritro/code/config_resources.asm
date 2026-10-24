@@ -4,6 +4,7 @@
 
 .label address_sprites = $2000     // 16 ship sprite frames
 .label address_chars   = $3800     // charset (last 2K slot in VIC bank 0)
+.label address_sprites2 = $2400    // shapes added in data_sprites.asm, right after the ship
 
 // SpritePad .spr: 3 header bytes (colours) then 16 x 64 bytes
 .var spr_file = LoadBinary("resources/sprites.spr")
